@@ -1,0 +1,21 @@
+# Dataset
+data/
+knee_osteoarthritis_pipeline/data/
+
+# Checkpoints & Model weights
+checkpoints/
+knee_osteoarthritis_pipeline/checkpoints/
+*.pth
+*.pt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
