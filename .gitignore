@@ -1,7 +1,3 @@
-# Dataset
-data/
-knee_osteoarthritis_pipeline/data/
-
 # Checkpoints & Model weights
 checkpoints/
 knee_osteoarthritis_pipeline/checkpoints/
