@@ -24,7 +24,8 @@ def main():
     epochs = 30
     lr = 1e-4
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Ràng buộc chạy trên GPU 1 (nếu có), nếu không có sẽ rớt về GPU 0 hoặc CPU
+    device = torch.device("cuda:1" if torch.cuda.device_count() > 1 else "cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
     # 1. Tải Dataset
