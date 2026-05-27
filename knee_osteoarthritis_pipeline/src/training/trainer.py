@@ -6,7 +6,7 @@ from .metrics import calculate_metrics
 from .visualization import plot_confusion_matrix, plot_training_history
 
 class Trainer:
-    def __init__(self, model, train_loader, val_loader, criterion, optimizer, device, lr_scheduler=None):
+    def __init__(self, model, train_loader, val_loader, criterion, optimizer, device, lr_scheduler=None, early_stopping_patience=7):
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -14,6 +14,7 @@ class Trainer:
         self.optimizer = optimizer
         self.device = device
         self.lr_scheduler = lr_scheduler
+        self.early_stopping_patience = early_stopping_patience
         
     def train_epoch(self):
         self.model.train()
@@ -74,6 +75,7 @@ class Trainer:
     def fit(self, epochs, save_dir="../checkpoints"):
         best_f1 = 0.0
         best_cm = None
+        patience_counter = 0
         
         # Lưu trữ lịch sử để vẽ biểu đồ
         history = {
@@ -108,6 +110,14 @@ class Trainer:
                 best_cm = val_metrics['confusion_matrix']
                 torch.save(self.model.state_dict(), model_save_path)
                 print(f"--> Saved best model with Macro-F1: {best_f1:.4f}")
+                patience_counter = 0  # Reset counter khi có kỷ lục mới
+            else:
+                patience_counter += 1
+                print(f"EarlyStopping counter: {patience_counter} out of {self.early_stopping_patience}")
+                
+            if patience_counter >= self.early_stopping_patience:
+                print("\n[!] Early stopping triggered. Training stopped to prevent overfitting.")
+                break
                 
         print("\nTraining completed! Generating evaluation plots...")
         # Kết thúc training, vẽ biểu đồ
