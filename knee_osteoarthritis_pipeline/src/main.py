@@ -56,8 +56,8 @@ def main():
     # AdamW là optimizer hoạt động rất tốt đối với các mô hình vision hạng nặng kết hợp weight decay
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     
-    # Learning Rate Scheduler - Tự động giảm LR nếu validation loss chững lại (Plateau)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5, verbose=True)
+    # Học Rate Scheduler - Tự động giảm LR nếu validation loss chững lại (Plateau)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5)
     
     # 6. Pipeline Huấn luyện
     trainer = Trainer(
