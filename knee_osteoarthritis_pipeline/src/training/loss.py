@@ -16,14 +16,21 @@ class FocalLoss(nn.Module):
 
     def forward(self, inputs, targets):
         # inputs: [Batch_size, Num_classes], targets: [Batch_size]
-        ce_loss = F.cross_entropy(inputs, targets, weight=self.alpha, reduction='none')
         
-        # Calculate pt (probabilities of targets)
+        # 1. Tính toán Standard Cross Entropy Loss (KHÔNG dùng weight ở bước này)
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        
+        # 2. Xây dựng xác suất của true class: pt = exp(-CE)
         pt = torch.exp(-ce_loss)
         
-        # Focal loss formula: (1 - pt)^gamma * CE_Loss
+        # 3. Tính cấu phần Focal
         focal_loss = ((1 - pt) ** self.gamma) * ce_loss
         
+        # 4. Tính toán trọng số lớp (alpha) thủ công nếu có truyền vào
+        if self.alpha is not None:
+            alpha_t = self.alpha[targets]
+            focal_loss = alpha_t * focal_loss
+            
         if self.reduction == 'mean':
             return focal_loss.mean()
         elif self.reduction == 'sum':

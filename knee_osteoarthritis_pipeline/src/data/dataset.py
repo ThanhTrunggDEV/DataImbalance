@@ -49,7 +49,8 @@ class KneeDataset(Dataset):
         Calculate class weights to handle severe imbalance.
         """
         class_counts = np.bincount(self.labels)
-        class_weights = 1. / class_counts
+        # Handle zero division if a class has 0 samples
+        class_weights = np.where(class_counts > 0, 1.0 / class_counts, 0.0)
         weights = class_weights[self.labels]
         return weights, class_weights
 
