@@ -21,6 +21,8 @@ from sklearn.metrics import (
     confusion_matrix,
     roc_auc_score,
     precision_recall_fscore_support,
+    cohen_kappa_score,
+    mean_absolute_error,
 )
 from tqdm import tqdm
 
@@ -121,19 +123,23 @@ def evaluate_on_test(
         zero_division=0,
     )
 
+    qwk = cohen_kappa_score(all_labels, all_preds, weights='quadratic')
+    mae = mean_absolute_error(all_labels, all_preds)
+
     auc_str = f"{auc_macro:.4f}" if not np.isnan(auc_macro) else "N/A"
-    print(f"\n  {'─'*58}")
-    print(f"  TEST SET RESULTS  —  {version_name}")
-    print(f"  {'─'*58}")
+    print(f"\n  {'-'*58}")
+    print(f"  TEST SET RESULTS  -  {version_name}")
+    print(f"  {'-'*58}")
     print(f"  Loss: {test_loss:.4f}  |  Accuracy: {accuracy:.4f}  |  "
           f"Macro F1: {f1_macro:.4f}  |  Macro AUC: {auc_str}")
+    print(f"  QWK: {qwk:.4f}  |  MAE: {mae:.4f}")
     print(f"\n{report_str}")
 
     report_path = os.path.join(save_dir, "test_classification_report.txt")
     with open(report_path, "w") as f:
         f.write(f"Version: {version_name}\n\n")
         f.write(report_str)
-    print(f"  Report saved → {report_path}")
+    print(f"  Report saved -> {report_path}")
 
     # ── Per-class metrics as structured dict ──────────────────────────────────
     per_class = {}
@@ -153,20 +159,22 @@ def evaluate_on_test(
         "test_precision_macro":round(p_macro,    6),
         "test_recall_macro":   round(r_macro,    6),
         "test_auc_macro":      round(auc_macro,  6) if not np.isnan(auc_macro) else None,
+        "test_qwk":            round(qwk,        6),
+        "test_mae":            round(mae,        6),
         "per_class":           per_class,
     }
 
     metrics_path = os.path.join(save_dir, "test_metrics.json")
     with open(metrics_path, "w") as f:
         json.dump(test_metrics, f, indent=2)
-    print(f"  Metrics saved → {metrics_path}")
+    print(f"  Metrics saved -> {metrics_path}")
 
     # ── Test confusion matrix ─────────────────────────────────────────────────
     plot_confusion_matrix(
         cm,
         class_names=class_names,
         save_path=os.path.join(save_dir, "test_confusion_matrix.png"),
-        title_suffix=f"Test Set — {version_name}",
+        title_suffix=f"Test Set - {version_name}",
     )
 
     return test_metrics
