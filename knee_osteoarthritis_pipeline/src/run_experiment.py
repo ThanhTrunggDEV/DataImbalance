@@ -100,11 +100,13 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
     print(f"{'='*70}")
 
     # ── Data ─────────────────────────────────────────────────────────────────
+    num_workers = getattr(args, 'num_workers', 4)
     train_loader, val_loader, test_loader, class_weights, class_counts = get_dataloaders(
         data_dir    = data_dir,
         batch_size  = batch_size,
         img_size    = IMG_SIZE,
         use_sampler = use_sampler,
+        num_workers = num_workers,
     )
 
     if len(train_loader.dataset) == 0:
@@ -362,6 +364,7 @@ def parse_args():
     parser.add_argument("--batch_size",   type=int, default=None)
     parser.add_argument("--data_dir",     type=str, default=None)
     parser.add_argument("--results_dir",  type=str, default=None)
+    parser.add_argument("--num_workers",  type=int, default=4)
     parser.add_argument("--cuda",         type=int, default=None,
                         help="CUDA device ID (overrides config.CUDA_DEVICE_ID)")
     parser.add_argument("--mixup_temperature", type=float, default=None,

@@ -12,6 +12,17 @@ venv/
 env/
 .env
 
+# Dataset directories
+knee_osteoarthritis_pipeline/data/
+knee_osteoarthritis_pipeline/data_dr/
+
+# Generated artifacts
+knee_osteoarthritis_pipeline/results/
+knee_osteoarthritis_pipeline/outputs/
+knee_osteoarthritis_pipeline/report_assets/
+knee_osteoarthritis_pipeline/training.log
+.vscode/
+
 # OS
 .DS_Store
 Thumbs.db

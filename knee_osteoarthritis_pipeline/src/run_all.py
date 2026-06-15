@@ -106,6 +106,8 @@ def parse_args():
                         help=f"Path to data root (default: {DATA_DIR})")
     parser.add_argument("--results_dir", type=str, default=os.path.join(_SCRIPT_DIR, "../results"),
                         help="Where to store all outputs")
+    parser.add_argument("--num_workers",  type=int, default=4,
+                        help="DataLoader workers (0 to disable multiprocessing)")
     parser.add_argument("--skip",  nargs="*", default=[],
                         help="Version names to skip")
     parser.add_argument("--only",  nargs="*", default=[],
