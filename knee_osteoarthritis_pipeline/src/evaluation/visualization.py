@@ -201,9 +201,15 @@ def plot_per_class_f1_heatmap(results_dir: str, version_configs: list):
         with open(path) as f:
             data = json.load(f)
 
-        per_class = data.get("per_class", {})
+        per_class_raw = data.get("per_class", {})
+        # Normalize keys: "Grade 0" → "0" (some old files use "Grade X" format)
+        per_class = {}
+        for k, v in per_class_raw.items():
+            norm = k.replace("Grade ", "")
+            per_class[norm] = v
+
         if class_names is None:
-            class_names = list(per_class.keys())
+            class_names = sorted(per_class.keys(), key=int)
 
         row = [per_class.get(cn, {}).get("f1", 0) for cn in class_names]
         matrix_rows.append(row)

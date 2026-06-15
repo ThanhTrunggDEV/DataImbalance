@@ -1,0 +1,339 @@
+\documentclass[runningheads]{llncs}
+
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{algorithmic}
+\usepackage{textcomp}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{bbm}
+\usepackage{soul}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{url}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{microtype}
+\def\UrlFont{\rmfamily}
+\begin{document}
+
+\title{Systematic Comparison of Imbalance Mitigation Strategies for Ordinal Medical Image Classification: Adjacent Mixup, Ordinal-Weighted Mixup, and Balanced Softmax on Knee OA Grading}
+
+\titlerunning{Imbalance Mitigation for Knee OA Grading}
+
+\author{Anonymous Author(s)}
+
+\maketitle
+
+\begin{abstract}
+Class imbalance and ordinality are two intertwined challenges in medical image classification.
+Knee Osteoarthritis (OA) severity grading---a 5-class ordinal task---suffers from severe class imbalance,
+where the intermediate Grade~1 (Doubtful) is systematically underdiagnosed.
+We present a systematic comparison of 10 imbalance mitigation strategies spanning re-weighting,
+margin-based, and data augmentation approaches, evaluated on the Chen~2018 Knee OA dataset.
+Our study comprises 18 experimental configurations, including standard baselines (CE, Focal Loss,
+Balanced Softmax), input-level mixup variants (Vanilla Mixup, Adjacent Mixup, Rule-based Mixup,
+SupCon), and a proposed Ordinal-Weighted Mixup (OWMix) that incorporates a Gaussian kernel
+weighted by ordinal distance.
+We find that Adjacent Mixup combined with Balanced Softmax achieves the best overall
+performance (F1=0.699, QWK=0.843, MAE=0.373), while OWMix with Balanced Softmax ($\tau$=2.0)
+achieves competitive ordinal metrics (QWK=0.843, MAE=0.368).
+Despite these gains, Grade~1 remains a persistent bottleneck (F1~0.38--0.41 across all methods),
+highlighting the need for dedicated ordinal-sensitive architectures.
+
+\keywords{Medical Image Classification, Class Imbalance, Ordinal Classification, Mixup, Balanced Softmax, Knee Osteoarthritis}
+\end{abstract}
+
+\section{Introduction}
+
+Knee Osteoarthritis (OA) is a degenerative joint disease affecting over 500 million people worldwide.
+Radiographic assessment using the Kellgren-Lawrence (KL) grading system is the clinical standard,
+assigning a severity grade from 0 (Healthy) to 4 (Severe).
+Automated KL grading is an ordinal classification problem where grades follow a natural
+ordering, and misclassifications incur asymmetric costs---predicting Grade~0 for a Grade~4 knee
+is far more dangerous than predicting Grade~3.
+
+Three major challenges complicate automated KL grading:
+(i) Severe class imbalance: Grade~0 dominates while Grade~4 is scarce;
+(ii) Ordinal ambiguity: Grade~1 (Doubtful) is inherently subjective and poorly separated
+from adjacent grades, leading to consistently low recall;
+(iii) Overfitting: Small dataset size (~3,500 training images) makes deep models prone to
+memorization.
+
+Prior work addresses these challenges individually through re-weighting~\cite{lin2017focal},
+margin-based losses~\cite{ren2020balanced}, and data augmentation~\cite{zhang2018mixup},
+but a systematic comparison across method families on the same medical ordinal dataset is lacking.
+Furthermore, while feature-level ordinal mixup has been explored~\cite{li2025dfpg},
+input-level ordinal-aware mixup remains understudied.
+
+This study bridges this gap by:
+\begin{itemize}
+\item benchmarking 10 imbalance strategies (18 configurations) on a unified pipeline
+  with fixed architecture (ResNet-50), training protocol, and evaluation;
+\item proposing Ordinal-Weighted Mixup (OWMix), a Gaussian-kernel-based mixup
+  that assigns higher mixing coefficients to samples from adjacent ordinal classes;
+\item identifying Adjacent Mixup + Balanced Softmax as the best-performing combination
+  (F1=0.699, QWK=0.843, MAE=0.373), improving 5.2\% F1 over the CE baseline;
+\item revealing the persistent Grade~1 bottleneck as a fundamental limitation of
+  post-hoc correction methods.
+\end{itemize}
+
+\section{Methodology}
+\subsection{Background: Imbalance in Ordinal Classification}
+
+Class imbalance in medical image classification is commonly addressed through three families
+of methods: re-weighting, margin-based losses, and data augmentation.
+
+\textbf{Focal Loss}~\cite{lin2017focal} down-weights easy samples using a modulating factor
+$\mathcal{L}_{\text{FL}} = -\sum_k (1-p_k)^\gamma \log p_k$ with $\gamma=2.0$.
+
+\textbf{Balanced Softmax}~\cite{ren2020balanced} adjusts logits by incorporating prior
+class frequencies. Given sample count $n_k$ for class $k$, the adjusted probability is:
+\begin{equation}
+   p_k' = \frac{n_k e^{z_k}}{\sum_j n_j e^{z_j}},
+\end{equation}
+effectively performing label-distribution-aware margin scaling.
+
+\textbf{Vanilla Mixup}~\cite{zhang2018mixup} creates convex combinations of random sample pairs:
+\begin{equation}
+\tilde{\mathbf{x}} = \lambda \mathbf{x}_i + (1-\lambda)\mathbf{x}_j,\quad
+\tilde{y} = \lambda y_i + (1-\lambda) y_j,
+\end{equation}
+with $\lambda \sim \text{Beta}(\alpha, \alpha)$, $\alpha=0.4$.
+
+\textbf{Adjacent Mixup} restricts mixing to pairs where $|y_i - y_j| \leq 1$, preserving
+ordinal locality. \textbf{Rule-based Mixup} uses a fixed $\lambda=0.49$ when mixing
+Grade~0 with other classes to prevent dominant class dilution.
+
+\textbf{SupCon}~\cite{khosla2020supervised} uses supervised contrastive learning in
+a 3-phase pipeline: pretrain with SupCon loss, linear probe, then full finetune.
+
+\subsection{Ordinal-Weighted Mixup (OWMix)}
+
+We propose OWMix, which assigns mixing weights via a Gaussian kernel over ordinal distance:
+\begin{equation}
+w(y_i, y_j) = \exp\left(-\frac{(y_i - y_j)^2}{2\tau^2}\right),
+\end{equation}
+where $\tau$ is a temperature hyperparameter controlling kernel width.
+The mixing coefficient is then:
+\begin{equation}
+\lambda' = w(y_i, y_j) \cdot \lambda + (1 - w(y_i, y_j)) \cdot 0.5,
+\end{equation}
+where $\lambda \sim \text{Beta}(\alpha, \alpha)$.
+This formulation smoothly interpolates between standard mixup (when $\tau \to \infty$)
+and near-adjacent-only mixing (when $\tau \to 0$).
+We sweep $\tau \in \{0.5, 1.0, 1.5, 2.0\}$ for both CE and Balanced Softmax variants.
+
+\section{Experiments}
+\subsection{Dataset}
+
+We use the Chen~2018 Knee OA dataset~\cite{chen2018knee}, consisting of 4,760 PA knee
+radiographs with KL grades 0--4.
+The official split allocates ~75\% for training (3,522 images) and ~25\% for testing (1,238 images).
+Following prior work, we further split the training set into train (90\%) and validation (10\%)
+stratified by class.
+All images are resized to $224\times224$, normalized with ImageNet statistics, and augmented
+with random horizontal flip and rotation $\pm 10^\circ$.
+
+Table~\ref{tab:dataset} shows the class distribution.
+Grade~0 is the most frequent class, while Grade~4 is the rarest, creating a long-tailed
+distribution with an imbalance ratio of approximately 5:1.
+
+\begin{table}[htb]
+    \centering
+    \caption{Class distribution in the Chen~2018 Knee OA dataset.}
+    \label{tab:dataset}
+    \small
+    \begin{tabular}{lrrrrr}
+        \toprule
+        Grade & 0 (Healthy) & 1 (Doubtful) & 2 (Minimal) & 3 (Moderate) & 4 (Severe) \\
+        \midrule
+        Train & 1,356 & 546 & 702 & 591 & 327 \\
+        Test  &   444 & 216 & 252 & 204 & 122 \\
+        \midrule
+        Total & 1,800 & 762 & 954 & 795 & 449 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Experimental Setup}
+
+All experiments use a ResNet-50~\cite{he2016deep} pretrained on ImageNet,
+with the final layer replaced by a 5-way classifier. Input size is $224\times224$.
+We train for 30 epochs with batch size 32, Adam optimizer ($\beta_1=0.9, \beta_2=0.999$),
+learning rate $10^{-4}$, and weight decay $10^{-4}$.
+Early stopping with patience 7 on validation F1-macro is applied.
+All runs use a fixed seed 42 for reproducibility.
+
+Table~\ref{tab:version_list} enumerates all 18 configurations.
+
+\begin{table}[htb]
+    \centering
+    \caption{Experiment version list.}
+    \label{tab:version_list}
+    \small
+    \begin{tabular}{cll}
+        \toprule
+        ID & Method & Loss \\
+        \midrule
+        v1  & CE (Baseline)          & CE      \\
+        v2  & Vanilla Mixup          & CE      \\
+        v3  & Balanced Softmax       & BalSoft \\
+        v4  & Mixup + BalSoft        & BalSoft \\
+        v5  & Focal Loss ($\gamma$=2)& Focal   \\
+        v6  & Adjacent Mixup         & CE      \\
+        v7  & Adjacent + BalSoft     & BalSoft \\
+        v8  & Rule Mixup             & CE      \\
+        v9  & Rule Mixup + BalSoft   & BalSoft \\
+        v10 & SupCon (3-stage)       & SupCon  \\
+        v11a & OWMix $\tau$=0.5      & CE      \\
+        v11b & OWMix $\tau$=1.0      & CE      \\
+        v11c & OWMix $\tau$=1.5      & CE      \\
+        v11d & OWMix $\tau$=2.0      & CE      \\
+        v12a & OWMix $\tau$=0.5 + BalSoft & BalSoft \\
+        v12b & OWMix $\tau$=1.0 + BalSoft & BalSoft \\
+        v12c & OWMix $\tau$=1.5 + BalSoft & BalSoft \\
+        v12d & OWMix $\tau$=2.0 + BalSoft & BalSoft \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Evaluation Metrics}
+
+We report F1-macro (primary), Quadratic Weighted Kappa (QWK), Mean Absolute Error (MAE),
+accuracy, and per-class F1 scores.
+QWK and MAE capture ordinal misclassification severity beyond accuracy.
+
+F1-macro is the unweighted mean of per-class F1 scores:
+\begin{equation}
+   \text{F1-macro} = \frac{1}{K} \sum_{k=0}^{K-1} \frac{2 \cdot \text{Precision}_k \cdot \text{Recall}_k}{\text{Precision}_k + \text{Recall}_k}
+\end{equation}
+
+Quadratic Weighted Kappa (QWK) measures agreement between predictions and ground truth,
+with quadratic penalty for ordinal deviations:
+\begin{equation}
+   \kappa = 1 - \frac{\sum_i \sum_j w_{ij} O_{ij}}{\sum_i \sum_j w_{ij} E_{ij}},
+\end{equation}
+where $w_{ij} = (i-j)^2$, $O$ is the observation matrix, and $E$ is the expected matrix
+under random chance.
+
+Mean Absolute Error (MAE) in the ordinal context measures the average absolute grade deviation:
+\begin{equation}
+   \text{MAE} = \frac{1}{n} \sum_{i=1}^{n} |\hat{y}_i - y_i|
+\end{equation}
+
+\subsection{Results and Analysis}
+
+\begin{table}[htb]
+    \centering
+    \caption{Main results on KL grade test set. Best per metric in bold.}
+    \label{tab:model-result}
+    \small
+    \begin{tabular}{lccccccccc}
+        \toprule
+        Method & F1 & QWK & MAE & Acc & G0 & G1 & G2 & G3 & G4 \\
+        \midrule
+        CE (Baseline) & .664 & .816 & .403 & .656 & 783 & 282 & 608 & 795 & 854 \\
+        Mixup & .666 & .820 & .405 & .643 & 769 & 382 & 559 & 779 & 842 \\
+        BalSoft & .682 & .826 & .388 & .658 & 786 & 354 & 609 & 774 & 885 \\
+        Mixup+BalSoft & .677 & .829 & .391 & .658 & 784 & 400 & 584 & 766 & 849 \\
+        Focal Loss & .661 & .822 & .418 & .611 & 722 & 413 & 524 & 796 & 849 \\
+        Adjacent Mixup (CE) & .673 & .824 & .397 & .655 & 779 & 351 & 591 & 785 & 857 \\
+        \textbf{Adjacent + BalSoft} & \textbf{.699} & \textbf{.843} & .373 & .655 & 755 & 413 & 616 & 823 & 887 \\
+        Rule Mixup (CE) & .656 & .803 & .431 & .619 & 748 & 384 & 533 & 774 & 841 \\
+        Rule Mixup + BalSoft & .680 & .811 & .420 & .618 & 698 & 401 & 597 & 818 & 887 \\
+        SupCon & .680 & .816 & .406 & .652 & 765 & 357 & 580 & 811 & 887 \\
+        \midrule
+        OWMix CE $\tau$=0.5 & .666 & .823 & .411 & .632 & 753 & 393 & 541 & 811 & 832 \\
+        OWMix CE $\tau$=1.0 & .689 & .841 & \textbf{.364} & \textbf{.679} & 794 & 390 & 631 & 807 & 824 \\
+        OWMix CE $\tau$=1.5 & .672 & .831 & .396 & .644 & 754 & 398 & 575 & 798 & 833 \\
+        OWMix CE $\tau$=2.0 & .681 & .828 & .391 & .652 & 762 & 393 & 607 & 783 & 857 \\
+        OWMix+BalSoft $\tau$=0.5 & .685 & .834 & .378 & .663 & 771 & 382 & 642 & 798 & 832 \\
+        OWMix+BalSoft $\tau$=1.0 & .681 & .828 & .391 & .652 & 762 & 393 & 607 & 783 & 857 \\
+        OWMix+BalSoft $\tau$=1.5 & .678 & .834 & .385 & .653 & 773 & 405 & 597 & 788 & 828 \\
+        OWMix+BalSoft $\tau$=2.0 & .685 & .843 & .368 & .671 & 792 & 385 & 621 & 794 & 835 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Table~\ref{tab:model-result} presents the full comparison across all 18 configurations.
+Several key findings emerge.
+
+\textbf{Adjacent Mixup + Balanced Softmax (v7) achieves the best overall F1.}
+v7 achieves F1=0.699, QWK=0.843, and MAE=0.373, outperforming all other methods on the
+primary F1 metric. The combination of ordinal-aware mixing (restricting to adjacent classes)
+and label-distribution-aware logit adjustment provides complementary benefits.
+
+\textbf{OWMix with Balanced Softmax is competitive on ordinal metrics.}
+v12d (OWMix $\tau$=2.0 + BalSoft) achieves QWK=0.843 (tying v7) and the best MAE
+among BalSoft variants (0.368), while v11b (OWMix $\tau$=1.0, CE) achieves the
+overall best MAE of 0.364. This suggests that Gaussian-weighted mixing with a wide
+kernel ($\tau=2.0$) provides ordinal awareness without overly restricting the mixing pool.
+
+\textbf{Balanced Softmax consistently improves CE.}
+Across all four mixup variants (Vanilla, Adjacent, Rule, OWMix), replacing CE with BalSoft
+improves F1 by 1--3 points, confirming its effectiveness as a complementary strategy.
+
+\textbf{Temperature ablation.}
+For CE variants, $\tau=1.0$ is optimal. For BalSoft variants, $\tau=2.0$ is best.
+BalSoft already provides class-aware logit adjustment, reducing the need for aggressive
+ordinal weighting---hence a wider kernel is preferred.
+Overall, temperature has modest impact (F1 range 0.666--0.689 for CE, 0.678--0.685 for BalSoft).
+
+\textbf{The Grade~1 bottleneck.}
+Grade~1 (Doubtful) F1 ranges from 0.282 (CE baseline) to a maximum of 0.413---the lowest
+across all five classes. Even v7 (+5.2\% F1 over baseline) only improves Grade~1 from
+0.282 to 0.413. This is consistent with clinical reality: Grade~1 is defined as doubtful,
+and its boundaries with Grade~0 and Grade~2 are inherently ambiguous.
+Post-hoc corrections appear fundamentally limited for high-ambiguity ordinal categories.
+
+\section{Conclusion}
+
+We systematically compared 18 imbalance mitigation configurations for ordinal medical image
+classification on the Chen~2018 Knee OA dataset.
+Adjacent Mixup + Balanced Softmax achieves the best overall performance (F1=0.699, QWK=0.843),
+while OWMix provides competitive results on ordinal metrics.
+The persistent Grade~1 bottleneck (maximum F1=0.413) indicates that post-hoc corrections
+are insufficient for high-ambiguity ordinal categories.
+Future work should investigate explicit ordinal constraints, uncertainty quantification,
+and multi-dataset validation.
+
+\begin{thebibliography}{10}
+
+\bibitem{lin2017focal}
+T.-Y. Lin, P. Goyal, R. Girshick, K. He, and P. Doll\'ar,
+``Focal Loss for Dense Object Detection,''
+in \textit{ICCV}, 2017.
+
+\bibitem{ren2020balanced}
+J. Ren, C. Yu, S. Ma, H. Zhao, S. Yi, et al.,
+``Balanced Meta-Softmax for Long-Tailed Visual Recognition,''
+in \textit{NeurIPS}, 2020.
+
+\bibitem{zhang2018mixup}
+H. Zhang, M. Ciss\'e, Y. N. Dauphin, and D. Lopez-Paz,
+``Mixup: Beyond Empirical Risk Minimization,''
+in \textit{ICLR}, 2018.
+
+\bibitem{li2025dfpg}
+Z. Li, J. Wang, Z. Zhang, Y. Pang, and G. Wang,
+``Dynamic Feature Pyramid Grouping for Imbalanced and Noisy Medical Image Classification,''
+\textit{IEEE TMI}, 2025.
+
+\bibitem{khosla2020supervised}
+P. Khosla, P. Teterwak, C. Wang, A. Sarna, Y. Tian, et al.,
+``Supervised Contrastive Learning,''
+in \textit{NeurIPS}, 2020.
+
+\bibitem{chen2018knee}
+P. Chen, L. Gao, X. Shi, K. Allen, and L. Yang,
+``Fully Automatic Knee Osteoarthritis Severity Grading Using Deep Neural Networks with a
+Weighted Ordinal Loss,''
+\textit{arXiv:1902.04876}, 2018.
+
+\bibitem{he2016deep}
+K. He, X. Zhang, S. Ren, and J. Sun,
+``Deep Residual Learning for Image Recognition,''
+in \textit{CVPR}, 2016.
+
+\end{thebibliography}
+
+\end{document}

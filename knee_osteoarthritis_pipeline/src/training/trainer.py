@@ -1,6 +1,9 @@
 """
 Enhanced Trainer with:
-  - Mixup augmentation support
+  - Standard Mixup augmentation
+  - Adjacent Mixup (only mix nearby classes)
+  - Rule-based Mixup (Grade 0 + partner, lam < 0.5)
+  - SupCon pretraining (supervised contrastive learning)
   - Full metrics history (loss, acc, precision, recall, f1 per epoch)
   - Saves metrics.json at end of training
   - Named checkpoints per experiment version
@@ -17,19 +20,12 @@ from .visualization import plot_training_history
 from evaluation.visualization import plot_confusion_matrix
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Mixup helper
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# Mixup helpers
+# -----------------------------------------------------------------------------
 
 def mixup_data(x: torch.Tensor, y: torch.Tensor, alpha: float = 0.4):
-    """
-    Apply Mixup augmentation to a batch.
-
-    Returns:
-        mixed_x : linearly-interpolated images
-        y_a, y_b: original and permuted labels
-        lam     : mixing coefficient
-    """
+    """Standard Mixup -- random permutation."""
     if alpha > 0:
         lam = float(np.random.beta(alpha, alpha))
     else:
@@ -43,14 +39,123 @@ def mixup_data(x: torch.Tensor, y: torch.Tensor, alpha: float = 0.4):
     return mixed_x, y_a, y_b, lam
 
 
+def mixup_data_adjacent(x: torch.Tensor, y: torch.Tensor, alpha: float = 0.4, max_gap: int = 1):
+    """Adjacent Mixup -- only pairs with |y_a - y_b| <= max_gap.
+    Falls back to unmixed (lam=1) for samples that cannot find a valid partner."""
+    if alpha > 0:
+        lam = float(np.random.beta(alpha, alpha))
+    else:
+        lam = 1.0
+
+    batch_size = x.size(0)
+    index = torch.randperm(batch_size, device=x.device)
+
+    # Resample indices that violate the gap constraint (max 20 attempts)
+    for _ in range(20):
+        gaps = (y - y[index]).abs()
+        if gaps.max() <= max_gap:
+            break
+        mask = gaps > max_gap
+        index[mask] = torch.randint(0, batch_size, (mask.sum().item(),), device=x.device)
+
+    # For any remaining violations, set lam=1 (no mixing)
+    gaps = (y - y[index]).abs()
+    valid = gaps <= max_gap
+    mixed_x = x.clone()
+    if valid.any():
+        mixed_x[valid] = lam * x[valid] + (1.0 - lam) * x[index[valid]]
+    # samples with invalid partner stay as original x
+
+    return mixed_x, y, y[index], lam
+
+
+def mixup_data_rule_based(x: torch.Tensor, y: torch.Tensor, alpha: float = 0.4, lam_max: float = 0.49):
+    """
+    Rule-based Mixup: modify Grade 0 images by mixing with non-zero partners.
+    - Mix ~70% of Grade 0 with non-zero partners (lam < 0.5, label = partner)
+    - Keep ~30% of Grade 0 clean (label = 0)
+    - ALL non-zero samples stay unchanged
+    Returns full batch (not subset) with per-sample modifications.
+    """
+    batch_size = x.size(0)
+    zero_mask = (y == 0)
+
+    lam = float(np.random.beta(alpha, alpha))
+    lam = min(lam, lam_max)
+
+    # Start with original batch: y_a = original labels, y_b = original labels
+    # For clean samples: y_a == y_b -> mixup_criterion reduces to CE(original)
+    # For mixed samples: y_a != y_b -> weighted CE
+    mixed_x = x.clone()
+    y_b = y.clone()
+
+    if zero_mask.any():
+        partner_mask = (y >= 2)  # only mix Grade 0 with {2,3,4}, exclude Grade 1
+        partner_pool = torch.where(partner_mask)[0]
+
+        if len(partner_pool) > 0:
+            zero_idx = torch.where(zero_mask)[0]
+            # Mix ~70% of Grade 0 samples
+            n_zero = len(zero_idx)
+            n_mix = max(1, int(n_zero * 0.7))
+            perm = torch.randperm(n_zero, device=x.device)
+            mix_idx = zero_idx[perm[:n_mix]]
+
+            partner_indices = partner_pool[torch.randint(0, len(partner_pool), (n_mix,), device=x.device)]
+            mixed_x[mix_idx] = lam * x[mix_idx] + (1.0 - lam) * x[partner_indices]
+            y_b[mix_idx] = y[partner_indices]  # label = partner (majority)
+
+    # y_a = original labels (y)
+    # y_b = original for clean, partner label for mixed Grade 0
+    # lam is applied as: lam * L(y_a) + (1-lam) * L(y_b)
+    # For clean (y_a==y_b): lam*L + (1-lam)*L = L(original)
+    # For mixed (y_a!=y_b): lam*L(0) + (1-lam)*L(partner) with lam < 0.5
+    return mixed_x, y, y_b, lam
+
+
+def mixup_data_ordinal_weighted(x: torch.Tensor, y: torch.Tensor, alpha: float = 0.4, temperature: float = 1.0):
+    """
+    Ordinal-Weighted Mixup (OWMix):
+    - Pair probability proportional to Gaussian kernel over ordinal distance
+    - Weighted by inverse sqrt class frequency (focus more on tail classes)
+    - No self-mix (diagonal = 0)
+    """
+    batch_size = x.size(0)
+    if alpha > 0:
+        lam = float(np.random.beta(alpha, alpha))
+    else:
+        lam = 1.0
+
+    # Ordinal distance kernel: P(i,j) = exp(-|yi - yj|^2 / tau^2)
+    y_i = y.float().unsqueeze(0)        # [1, B]
+    y_j = y.float().unsqueeze(1)        # [B, 1]
+    dist = (y_i - y_j).abs()             # [B, B]
+    w = torch.exp(-dist ** 2 / temperature ** 2)
+
+    # Inverse sqrt class frequency weighting
+    counts = torch.bincount(y, minlength=5).float()
+    inv_freq = 1.0 / (counts.sqrt() + 1e-8)
+    w_freq = inv_freq[y].unsqueeze(0) * inv_freq[y].unsqueeze(1)
+
+    w = w * w_freq
+    w.fill_diagonal_(0)  # no self-mix
+    probs = w / w.sum(dim=1, keepdim=True)
+
+    # Sample partner from categorical distribution
+    index = torch.multinomial(probs, num_samples=1).squeeze(1)
+
+    mixed_x = lam * x + (1.0 - lam) * x[index]
+    return mixed_x, y, y[index], lam
+
+
 def mixup_criterion(criterion, pred, y_a, y_b, lam):
     """Compute mixed loss: lam * L(y_a) + (1-lam) * L(y_b)."""
     return lam * criterion(pred, y_a) + (1.0 - lam) * criterion(pred, y_b)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Trainer
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class Trainer:
     def __init__(
@@ -65,7 +170,11 @@ class Trainer:
         lr_scheduler=None,
         early_stopping_patience: int = 7,
         use_mixup: bool = False,
+        mixup_mode: str = "standard",
         mixup_alpha: float = 0.4,
+        mixup_adjacent_gap: int = 1,
+        mixup_rule_lam_max: float = 0.49,
+        mixup_temperature: float = 1.0,
     ):
         self.model = model
         self.train_loader = train_loader
@@ -77,9 +186,13 @@ class Trainer:
         self.lr_scheduler = lr_scheduler
         self.early_stopping_patience = early_stopping_patience
         self.use_mixup = use_mixup
+        self.mixup_mode = mixup_mode
         self.mixup_alpha = mixup_alpha
+        self.mixup_adjacent_gap = mixup_adjacent_gap
+        self.mixup_rule_lam_max = mixup_rule_lam_max
+        self.mixup_temperature = mixup_temperature
 
-    # ── Single epoch helpers ──────────────────────────────────────────────────
+    # -- Single epoch helpers --------------------------------------------------
 
     def train_epoch(self):
         self.model.train()
@@ -90,11 +203,36 @@ class Trainer:
         for images, labels in loop:
             images, labels = images.to(self.device), labels.to(self.device)
             self.optimizer.zero_grad()
+            batch_labels = labels
 
-            if self.use_mixup:
+            if self.use_mixup and self.mixup_mode == "adjacent":
+                mixed_x, y_a, y_b, lam = mixup_data_adjacent(
+                    images, labels, self.mixup_alpha, self.mixup_adjacent_gap
+                )
+                outputs = self.model(mixed_x)
+                loss = mixup_criterion(self.criterion, outputs, y_a, y_b, lam)
+
+            elif self.use_mixup and self.mixup_mode == "rule":
+                mixed_x, y_a, y_b, lam = mixup_data_rule_based(
+                    images, labels, self.mixup_alpha, self.mixup_rule_lam_max
+                )
+                outputs = self.model(mixed_x)
+                loss = mixup_criterion(self.criterion, outputs, y_a, y_b, lam)
+                batch_labels = y_a
+
+            elif self.use_mixup and self.mixup_mode == "ordinal_weighted":
+                mixed_x, y_a, y_b, lam = mixup_data_ordinal_weighted(
+                    images, labels, self.mixup_alpha, self.mixup_temperature
+                )
+                outputs = self.model(mixed_x)
+                loss = mixup_criterion(self.criterion, outputs, y_a, y_b, lam)
+
+            elif self.use_mixup:
+                # Standard mixup (default)
                 mixed_x, y_a, y_b, lam = mixup_data(images, labels, self.mixup_alpha)
                 outputs = self.model(mixed_x)
                 loss = mixup_criterion(self.criterion, outputs, y_a, y_b, lam)
+
             else:
                 outputs = self.model(images)
                 loss = self.criterion(outputs, labels)
@@ -106,7 +244,7 @@ class Trainer:
             total_loss += loss.item()
             preds = torch.argmax(outputs, dim=1)
             all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
+            all_labels.extend(batch_labels.cpu().numpy())
 
             loop.set_postfix(loss=f"{loss.item():.4f}")
 
@@ -136,7 +274,7 @@ class Trainer:
         metrics = calculate_metrics(all_labels, all_preds, np.array(all_probs))
         return total_loss / len(self.val_loader), metrics
 
-    # ── Main training loop ────────────────────────────────────────────────────
+    # -- Main training loop ----------------------------------------------------
 
     def fit(self, epochs: int, save_dir: str = "../results/experiment"):
         os.makedirs(save_dir, exist_ok=True)
@@ -153,18 +291,20 @@ class Trainer:
             "train_precision": [], "val_precision": [],
             "train_recall": [], "val_recall": [],
             "train_f1": [], "val_f1": [],
+            "train_qwk": [], "val_qwk": [],
+            "train_mae": [], "val_mae": [],
         }
         best_metrics_snapshot = {}
 
         for epoch in range(epochs):
-            print(f"\n{'─'*60}")
+            print(f"\n{'='*60}")
             print(f"  [{self.version_name}]  Epoch {epoch+1}/{epochs}")
-            print(f"{'─'*60}")
+            print(f"{'='*60}")
 
             train_loss, train_m = self.train_epoch()
             val_loss,   val_m   = self.validate()
 
-            # ── Record history ────────────────────────────────────────────────
+            # -- Record history ------------------------------------------------
             history["train_loss"].append(train_loss)
             history["val_loss"].append(val_loss)
             history["train_accuracy"].append(train_m["accuracy"])
@@ -175,26 +315,32 @@ class Trainer:
             history["val_recall"].append(val_m["recall_macro"])
             history["train_f1"].append(train_m["f1_macro"])
             history["val_f1"].append(val_m["f1_macro"])
+            history["train_qwk"].append(train_m.get("qwk", 0))
+            history["val_qwk"].append(val_m.get("qwk", 0))
+            history["train_mae"].append(train_m.get("mae", 0))
+            history["val_mae"].append(val_m.get("mae", 0))
 
-            # ── LR scheduler ──────────────────────────────────────────────────
+            # -- LR scheduler --------------------------------------------------
             if self.lr_scheduler:
                 self.lr_scheduler.step(val_loss)
 
-            # ── Console summary ───────────────────────────────────────────────
+            # -- Console summary -----------------------------------------------
             auc_str = f"{val_m['auc_macro']:.4f}" if 'auc_macro' in val_m and not np.isnan(val_m['auc_macro']) else "N/A "
+            qwk_str = f"{val_m['qwk']:.4f}" if 'qwk' in val_m else "N/A "
+            mae_str = f"{val_m['mae']:.4f}" if 'mae' in val_m else "N/A "
             print(f"  Train  | Loss: {train_loss:.4f} | Acc: {train_m['accuracy']:.4f} | "
                   f"P: {train_m['precision_macro']:.4f} | R: {train_m['recall_macro']:.4f} | "
-                  f"F1: {train_m['f1_macro']:.4f}")
+                  f"F1: {train_m['f1_macro']:.4f} | QWK: {qwk_str}")
             print(f"  Val    | Loss: {val_loss:.4f} | Acc: {val_m['accuracy']:.4f} | "
                   f"P: {val_m['precision_macro']:.4f} | R: {val_m['recall_macro']:.4f} | "
-                  f"F1: {val_m['f1_macro']:.4f} | AUC: {auc_str}")
+                  f"F1: {val_m['f1_macro']:.4f} | AUC: {auc_str} | QWK: {qwk_str} | MAE: {mae_str}")
 
-            # ── Checkpointing (best val F1) ───────────────────────────────────
+            # -- Checkpointing (best val F1) -----------------------------------
             if val_m["f1_macro"] > best_f1:
                 best_f1 = val_m["f1_macro"]
                 best_cm = val_m["confusion_matrix"]
                 torch.save(self.model.state_dict(), model_path)
-                print(f"  ✓ Saved best model  →  Val F1 = {best_f1:.4f}")
+                print(f"  v Saved best model  ->  Val F1 = {best_f1:.4f}")
                 patience_counter = 0
                 best_metrics_snapshot = {
                     "epoch": epoch + 1,
@@ -203,7 +349,7 @@ class Trainer:
                     "val_precision_macro": round(val_m["precision_macro"], 6),
                     "val_recall_macro": round(val_m["recall_macro"], 6),
                     "val_f1_macro": round(val_m["f1_macro"], 6),
-                    # None → JSON null (NaN is invalid JSON)
+                    # None -> JSON null (NaN is invalid JSON)
                     "val_auc_macro": (
                         round(val_m["auc_macro"], 6)
                         if "auc_macro" in val_m and not np.isnan(val_m["auc_macro"])
@@ -218,8 +364,8 @@ class Trainer:
                 print(f"\n  [!] Early stopping triggered at epoch {epoch+1}.")
                 break
 
-        # ── Post-training: save artefacts ─────────────────────────────────────
-        print(f"\n  Saving artefacts to  {save_dir} …")
+        # -- Post-training: save artefacts -------------------------------------
+        print(f"\n  Saving artefacts to  {save_dir} ...")
 
         # Metrics JSON
         output = {
@@ -245,3 +391,71 @@ class Trainer:
 
         print(f"  Done! Best Val F1 = {best_f1:.4f}  (epoch {best_metrics_snapshot.get('epoch', '?')})")
         return history, best_metrics_snapshot
+
+    # -- SupCon pretraining (Stage 1) ------------------------------------------
+
+    def train_supcon_epoch(self, train_loader):
+        """Single epoch for SupCon pretraining -- handles (x1, x2, labels) triplets."""
+        self.model.train()
+        total_loss = 0.0
+
+        loop = tqdm(train_loader, desc=f"[{self.version_name}] SupCon Train", leave=False)
+        for x1, x2, labels in loop:
+            x1, x2, labels = x1.to(self.device), x2.to(self.device), labels.to(self.device)
+            self.optimizer.zero_grad()
+
+            # Forward both views through backbone + projection head
+            z1 = self.model(x1)  # [B, D]
+            z2 = self.model(x2)  # [B, D]
+            features = torch.cat([z1, z2], dim=0)  # [2*B, D]
+
+            loss = self.criterion(features, labels)
+
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            self.optimizer.step()
+
+            total_loss += loss.item()
+            loop.set_postfix(loss=f"{loss.item():.4f}")
+
+        return total_loss / len(train_loader)
+
+    def fit_supcon(self, epochs: int, supcon_loader, save_dir: str = "../results/experiment"):
+        """
+        SupCon pretraining loop (Stage 1).
+        Saves backbone weights to 'backbone_supcon.pth' after training.
+        """
+        os.makedirs(save_dir, exist_ok=True)
+
+        history = {"supcon_loss": []}
+
+        for epoch in range(epochs):
+            print(f"\n{'-'*60}")
+            print(f"  [{self.version_name}]  SupCon Epoch {epoch+1}/{epochs}")
+            print(f"{'-'*60}")
+
+            train_loss = self.train_supcon_epoch(supcon_loader)
+
+            history["supcon_loss"].append(round(train_loss, 6))
+
+            print(f"  SupCon Loss: {train_loss:.4f}")
+
+        # Save only backbone weights (exclude projector)
+        backbone_path = os.path.join(save_dir, "backbone_supcon.pth")
+        backbone_state = {
+            k: v for k, v in self.model.state_dict().items()
+            if not k.startswith("projector.")
+        }
+        torch.save(backbone_state, backbone_path)
+        print(f"  Saved backbone (without projector) -> {backbone_path}")
+
+        # Save history
+        output = {
+            "version": self.version_name,
+            "total_epochs_run": epochs,
+            "history": history,
+        }
+        with open(os.path.join(save_dir, "supcon_metrics.json"), "w") as f:
+            json.dump(output, f, indent=2)
+
+        return history
