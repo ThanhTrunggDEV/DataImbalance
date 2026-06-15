@@ -37,10 +37,13 @@ The pipeline trains **18 experiment variants** (across 12 version families) with
 ```
 knee_osteoarthritis_pipeline/
 ├── README.md
+├── AGENTS.md                      # 🤖 OpenCode instructions
 ├── requirements.txt
 ├── weekly_report.html             # 📊 Auto-generated HTML weekly report
-├── data/                          # Dataset (not tracked in git)
+├── data/                          # Knee OA dataset (gitignored)
 │   └── train/ val/ test/          # Each with sub-folders: 0/ 1/ 2/ 3/ 4/
+├── data_dr/                       # EyePACS DR dataset (gitignored)
+│   └── train/ val/ test/          # Same folder structure, 5 ordinal classes
 ├── outputs/                       # EDA & misc outputs (not tracked)
 │   └── eda/
 │       ├── summary.csv
@@ -69,7 +72,8 @@ knee_osteoarthritis_pipeline/
     │   └── config.py              # Hyperparameters, VERSIONS, device
     ├── data/
     │   ├── dataset.py             # KneeDataset, DataLoader, SupConViewDataset
-    │   └── download.py            # Kaggle dataset downloader
+    │   ├── download.py            # Kaggle dataset downloader (KOA)
+    │   └── download_eyepacs.py    # HuggingFace downloader (EyePACS DR)
     ├── eda/
     │   └── eda.py                 # Exploratory Data Analysis (distributions, pixel stats, galleries)
     ├── models/
@@ -112,12 +116,16 @@ pip install -r requirements.txt
 - Python ≥ 3.8
 - PyTorch + torchvision (with CUDA for GPU training)
 - scikit-learn, numpy, matplotlib, seaborn, tqdm, Pillow
+- `datasets` (HuggingFace) — required for EyePACS download
 
 > **Note:** To auto-download the Kaggle dataset via `data/download.py`, place a valid `kaggle.json` in `~/.kaggle/`.
+> **Note:** For EyePACS, run `pip install datasets` then `python data/download_eyepacs.py`.
 
 ---
 
 ## Dataset Preparation
+
+### Knee OA (X-ray)
 
 The pipeline expects this folder structure under `data/`:
 
@@ -141,6 +149,20 @@ cd src
 python -c "from data.download import download_kaggle_dataset; download_kaggle_dataset()"
 ```
 
+### EyePACS Diabetic Retinopathy (Retinal Fundus)
+
+Cross-dataset validation dataset (same 5-class ordinal structure, different imaging modality).
+
+Auto-download from HuggingFace and preprocess into the same folder structure (`data_dr/{train,val,test}/{0-4}/`):
+
+```bash
+cd src
+pip install datasets
+python data/download_eyepacs.py
+```
+
+This produces a stratified **70/10/20** train/val/test split of the 35,108-image EyePACS training set, resized to 224×224.
+
 ---
 
 ## Usage
@@ -154,6 +176,19 @@ python run_all.py --epochs 2                         # Quick smoke test
 python run_all.py --only v1_baseline v10_supcon      # Run specific versions
 python run_all.py --skip v2_mixup                    # Skip a version
 python run_all.py --cuda 1                           # Use a specific GPU
+python run_all.py --seeds 42 123 456                 # Multi-seed (3 runs per version)
+python run_all.py --num_workers 0                    # Win: disable multiprocessing
+```
+
+### Cross-Dataset (EyePACS)
+
+```bash
+cd src
+python run_all.py --data_dir ../data_dr --num_workers 4   # Linux server full run
+python run_all.py --data_dir ../data_dr --num_workers 0   # Windows (shared-memory workaround)
+python run_all.py --data_dir ../data_dr --num_workers 4 --seeds 42 123 \
+  --only v1_baseline v3_balanced_softmax v5_focal_loss v7_adjacent_balanced \
+         v11_owmixup_ce v12_owmixup_balanced_t20          # Top 6 × 2 seeds
 ```
 
 ### Run a Single Version
@@ -163,6 +198,8 @@ cd src
 python run_experiment.py --version v1_baseline --epochs 10
 python run_experiment.py --version v5_focal_loss --batch_size 16
 python run_experiment.py --version v10_supcon --supcon_epochs 50 --probe_epochs 10
+python run_experiment.py --version v7_adjacent_balanced --data_dir ../data_dr \
+  --num_workers 4                                        # Single EyePACS experiment
 ```
 
 ### OWMix Temperature Sweep (v11, v12)
@@ -212,9 +249,11 @@ Produces class distribution charts, pixel statistics, sample image galleries, an
 | `--cuda` | GPU device ID | 0 |
 | `--data_dir` | Path to dataset root | `../data` |
 | `--results_dir` | Output directory | `../results` |
+| `--num_workers` | DataLoader workers (0 for Windows) | 4 |
+| `--seeds` | Random seeds for multi-seed runs (run_all) | `[42]` |
 | `--skip` | Version names to skip (run_all only) | — |
 | `--only` | Run only these versions (run_all only) | — |
-| `--mixup_temperature` | OWMix temperature τ (run_experiment only) | config default |
+| `--mixup_temperature` | OWMix temperature τ | config default |
 | `--supcon_epochs` | SupCon pretraining epochs (v10) | 50 |
 | `--probe_epochs` | Linear probe epochs (v10 phase 2) | 10 |
 | `--finetune_epochs` | Full finetune epochs (v10 phase 3) | 20 |
@@ -310,4 +349,5 @@ All hyperparameters are centralized in [`src/configs/config.py`](src/configs/con
 - **Focal Loss**: Lin et al. (2017) — *Focal Loss for Dense Object Detection*
 - **SupCon**: Khosla et al. (NeurIPS 2020) — *Supervised Contrastive Learning*
 - **OWMix**: Zhang et al. (2023) — *Ordinal-Weighted Mixup for Imbalanced Medical Image Classification* (or equivalent ordinal mixup formulation)
-- **Dataset**: [Knee Osteoarthritis Dataset with Severity](https://www.kaggle.com/datasets/shashwatwork/knee-osteoarthritis-dataset-with-severity) (Kaggle)
+- **Dataset (KOA)**: [Knee Osteoarthritis Dataset with Severity](https://www.kaggle.com/datasets/shashwatwork/knee-osteoarthritis-dataset-with-severity) (Kaggle)
+- **Dataset (EyePACS)**: [bumbledeep/eyepacs](https://huggingface.co/datasets/bumbledeep/eyepacs) (HuggingFace, MIT license)

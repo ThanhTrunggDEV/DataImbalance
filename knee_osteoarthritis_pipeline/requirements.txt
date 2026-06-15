@@ -7,3 +7,6 @@ seaborn
 kaggle
 tqdm
 Pillow
+datasets
+scipy
+datasets
