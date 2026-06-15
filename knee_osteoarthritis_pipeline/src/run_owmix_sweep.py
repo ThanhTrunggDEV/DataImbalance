@@ -36,6 +36,8 @@ def make_args(epochs=30, cuda=0):
         supcon_epochs=None,
         probe_epochs=None,
         finetune_epochs=None,
+        num_workers=4,
+        dataset="",
     )
 
 

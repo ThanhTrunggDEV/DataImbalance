@@ -124,11 +124,17 @@ def parse_args():
                         help="CUDA device ID (overrides config.CUDA_DEVICE_ID)")
     parser.add_argument("--mixup_temperature", type=float, default=None,
                         help="OWMix temperature tau (overrides config.MIXUP_TEMPERATURE)")
+    parser.add_argument("--dataset", type=str, default="",
+                        help="Dataset subdirectory under results_dir (e.g. koa, eyepacs)")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    if args.dataset:
+        args.results_dir = os.path.join(args.results_dir, args.dataset)
+        os.makedirs(args.results_dir, exist_ok=True)
 
     # Determine which versions to run
     to_run = VERSIONS
@@ -138,7 +144,9 @@ def main():
         to_run = [v for v in VERSIONS if v["name"] not in args.skip]
 
     print(f"\n{'#'*70}")
-    print(f"  KNEE OA — MULTI-VERSION IMBALANCE PIPELINE")
+    print(f"  MULTI-VERSION IMBALANCE PIPELINE")
+    if args.dataset:
+        print(f"  Dataset         : {args.dataset}")
     print(f"  Versions to run : {[v['name'] for v in to_run]}")
     print(f"  Results dir     : {os.path.abspath(args.results_dir)}")
     print(f"{'#'*70}")

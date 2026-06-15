@@ -285,9 +285,8 @@ def build_toc():
     return html
 
 
-def build_executive_summary(versions, summary_rows):
+def build_executive_summary(versions, summary_rows, results_dir):
     """Executive summary with key findings (using TEST metrics for ranking)."""
-    results_dir = os.path.join(_SCRIPT_DIR.parent, "results")
 
     # Load test metrics for all versions that have them
     test_rows = []
@@ -669,7 +668,6 @@ def build_version_detail(results_dir, comp_map):
 
 def build_insights(results_dir, summary_rows, outputs_dir):
     """Generate insights and recommendations (using TEST metrics for ranking)."""
-    results_dir = os.path.join(_SCRIPT_DIR.parent, "results")
 
     # Load test metrics
     test_rows = {}
@@ -785,7 +783,7 @@ def build_appendix(results_dir):
 
 # ── Generate ─────────────────────────────────────────────────────────────────
 
-def generate_report(results_dir, outputs_dir, output_path):
+def generate_report(results_dir, outputs_dir, output_path, dataset=""):
     """Main generator."""
     results_dir = os.path.abspath(results_dir)
     outputs_dir = os.path.abspath(outputs_dir)
@@ -795,6 +793,12 @@ def generate_report(results_dir, outputs_dir, output_path):
     print(f"[Report] Loading from: {results_dir}")
     print(f"[Report] Output to:   {output_path}")
 
+    # Detect dataset from results_dir parent if not explicitly set
+    if not dataset:
+        parent_dir = os.path.basename(os.path.dirname(results_dir.rstrip(os.sep)))
+        if parent_dir in ("koa", "eyepacs"):
+            dataset = parent_dir
+
     # Load data
     summary_rows = load_summary_csv(results_dir)
     print(f"         Summary: {len(summary_rows)} versions")
@@ -803,22 +807,25 @@ def generate_report(results_dir, outputs_dir, output_path):
     comp_map, eda_map, version_images = copy_assets(output_dir, results_dir, outputs_dir)
     print(f"         Assets:  {len(comp_map)} comparison + {len(eda_map)} EDA images")
 
+    dataset_title = dataset.upper() if dataset else "Knee OA"
+    dataset_label = f" — {dataset_title.upper()}" if dataset else ""
+
     # Build HTML
     html_parts = [
         "<!DOCTYPE html><html lang='vi'><head>",
         "<meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>",
-        "<title>Weekly Report — Knee OA Imbalance Pipeline</title>",
+        f"<title>Weekly Report{dataset_label} — Imbalance Pipeline</title>",
         f"<style>{build_styles()}</style>",
         "</head><body>",
 
         # Header
-        f"<h1>📋 Báo cáo thực nghiệm — Knee Osteoarthritis</h1>",
+        f"<h1>📋 Báo cáo thực nghiệm{dataset_label}</h1>",
         f"<p class='meta'>Ngày: {datetime.now().strftime('%d/%m/%Y %H:%M')} &nbsp;|&nbsp; "
         f"Số phiên bản: {len(summary_rows)} &nbsp;|&nbsp; "
         f"Pipeline: Multi-version imbalance strategies</p>",
 
         build_toc(),
-        build_executive_summary(VERSIONS, summary_rows),
+        build_executive_summary(VERSIONS, summary_rows, results_dir),
         build_dataset_section(outputs_dir),
         build_config_section(),
         build_comparison_table(summary_rows),
@@ -856,10 +863,19 @@ def main():
                         help="Directory to save the report (default: project root)")
     parser.add_argument("--output", default="weekly_report.html",
                         help="Output filename (default: weekly_report.html)")
+    parser.add_argument("--dataset", type=str, default="",
+                        help="Dataset subdirectory under results_dir (e.g. koa, eyepacs)")
     args = parser.parse_args()
 
+    results_dir = args.results_dir
+    if args.dataset:
+        results_dir = os.path.join(results_dir, args.dataset)
+    if not os.path.isdir(results_dir):
+        print(f"[ERROR] Results directory not found: {results_dir}")
+        sys.exit(1)
+
     output_path = os.path.join(args.outputdir, args.output)
-    generate_report(args.results_dir, args.outputs_dir, output_path)
+    generate_report(results_dir, args.outputs_dir, output_path, dataset=args.dataset)
 
 
 if __name__ == "__main__":

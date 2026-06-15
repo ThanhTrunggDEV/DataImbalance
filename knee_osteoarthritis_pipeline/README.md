@@ -178,17 +178,19 @@ python run_all.py --skip v2_mixup                    # Skip a version
 python run_all.py --cuda 1                           # Use a specific GPU
 python run_all.py --seeds 42 123 456                 # Multi-seed (3 runs per version)
 python run_all.py --num_workers 0                    # Win: disable multiprocessing
+python run_all.py --dataset koa                      # Save under results/koa/
+python run_all.py --dataset eyepacs                  # Save under results/eyepacs/
 ```
 
 ### Cross-Dataset (EyePACS)
 
 ```bash
 cd src
-python run_all.py --data_dir ../data_dr --num_workers 4   # Linux server full run
-python run_all.py --data_dir ../data_dr --num_workers 0   # Windows (shared-memory workaround)
-python run_all.py --data_dir ../data_dr --num_workers 4 --seeds 42 123 \
+python run_all.py --data_dir ../data_dr --dataset eyepacs --num_workers 4   # Linux server full run
+python run_all.py --data_dir ../data_dr --dataset eyepacs --num_workers 0   # Windows
+python run_all.py --data_dir ../data_dr --dataset eyepacs --num_workers 4 --seeds 42 123 \
   --only v1_baseline v3_balanced_softmax v5_focal_loss v7_adjacent_balanced \
-         v11_owmixup_ce v12_owmixup_balanced_t20          # Top 6 × 2 seeds
+         v11_owmixup_ce v12_owmixup_balanced_t20          # Top 6 × 2 seeds → results/eyepacs/
 ```
 
 ### Run a Single Version
@@ -250,6 +252,7 @@ Produces class distribution charts, pixel statistics, sample image galleries, an
 | `--data_dir` | Path to dataset root | `../data` |
 | `--results_dir` | Output directory | `../results` |
 | `--num_workers` | DataLoader workers (0 for Windows) | 4 |
+| `--dataset` | Dataset subdirectory (`koa`, `eyepacs`, or empty) | `""` |
 | `--seeds` | Random seeds for multi-seed runs (run_all) | `[42]` |
 | `--skip` | Version names to skip (run_all only) | — |
 | `--only` | Run only these versions (run_all only) | — |

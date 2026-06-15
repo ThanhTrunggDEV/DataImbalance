@@ -76,6 +76,9 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
     batch_size  = args.batch_size        if args.batch_size  is not None else BATCH_SIZE
     data_dir    = args.data_dir          if args.data_dir    is not None else os.path.join(_SCRIPT_DIR, DATA_DIR)
     results_dir = args.results_dir       if args.results_dir is not None else os.path.join(_SCRIPT_DIR, "../results")
+    dataset     = getattr(args, 'dataset', None) or ''
+    if dataset:
+        results_dir = os.path.join(results_dir, dataset)
     save_dir    = os.path.join(results_dir, name)
 
     # Priority: config entry > CLI flag > config default
@@ -95,6 +98,8 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
     device = get_device()
     print(f"\n{'='*70}")
     print(f"  VERSION : {name}")
+    if dataset:
+        print(f"  Dataset : {dataset}")
     print(f"  Loss    : {loss_type}   |  Mixup: {use_mixup} ({mixup_mode})  |  Sampler: {use_sampler}")
     print(f"  Device  : {device}      |  Epochs: {epochs}   |  Seed: {SEED}")
     print(f"{'='*70}")
@@ -376,6 +381,8 @@ def parse_args():
                         help="Linear probe epochs (v10 phase 2)")
     parser.add_argument("--finetune_epochs", type=int, default=None,
                         help="Full finetune epochs (v10 phase 3)")
+    parser.add_argument("--dataset", type=str, default="",
+                        help="Dataset subdirectory under results_dir (e.g. koa, eyepacs)")
     return parser.parse_args()
 
 
