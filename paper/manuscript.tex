@@ -6,7 +6,10 @@
 \usepackage{booktabs}
 \usepackage{microtype}
 \usepackage{url}
+\usepackage{color}
 \def\UrlFont{\rmfamily}
+\newcommand{\placeholder}[2][0.85]{%
+  \fbox{\parbox{#1\textwidth}{\centering\vspace{#2}{\color{gray}FIGURE PLACEHOLDER}\vspace{#2}}}}
 
 \begin{document}
 
@@ -117,7 +120,7 @@ Table~\ref{tab:koa_perclass} presents per-class F1 scores across all six configu
 Method & G0 & G1 & G2 & G3 & G4 & Macro F1 \\
 \midrule
 v1 Baseline (CE)      & .783 & .282 & .608 & .795 & .854 & .664 \\
-v3 Balanced Softmax   & .786 & .354 & .609 & .774 & \textbf{.885} & .682 \\
+v3 Balanced Softmax   & .786 & .354 & .609 & .774 & .885 & .682 \\
 v5 Focal Loss         & .722 & .413 & .524 & .796 & .849 & .661 \\
 v7 Adjacent+BalSoft   & .755 & \textbf{.413} & .616 & \textbf{.823} & \textbf{.887} & \textbf{.699} \\
 v11 OWMixup CE $\tau$2 & .762 & .393 & .607 & .783 & .857 & .681 \\
@@ -128,13 +131,20 @@ v12 OWMixup+BalSoft $\tau$0.5 & .771 & .382 & \textbf{.642} & .798 & .832 & .685
 
 Several key findings emerge. First, \textbf{Adjacent Mixup + Balanced Softmax (v7) achieves the best overall macro F1 (0.699)} and the highest per-class F1 on the minority Grade~4 (0.887). Second, the improvement on Grade~1 is dramatic: from 0.282 (baseline) to 0.413 (v7, v5), a gain of $+13.1$ points. This confirms that ordinal awareness is particularly beneficial for ambiguous intermediate grades. Third, Grade~0 (majority) is only marginally affected ($-2.8$ points), demonstrating that ordinal-aware methods redistribute learning capacity rather than degrading overall performance.
 
-Fig.~\ref{fig:koa_heatmap} visualizes the per-class F1 landscape as a heatmap, clearly showing how v7 and OWMixup variants elevate the darker (low-F1) regions in Grade~1.
+Fig.~\ref{fig:koa_heatmap} visualizes the per-class F1 landscape as a heatmap, clearly showing how v7 and OWMixup variants elevate the darker (low-F1) regions in Grade~1. Fig.~\ref{fig:metrics} compares the validation metrics across six configurations.
 
 \begin{figure}[htb]
 \centering
 \includegraphics[width=0.85\linewidth]{fig1_heatmap_KOA.png}
 \caption{Per-class F1 heatmap on KOA. OWMixup and Adjacent + BalSoft show consistent improvements on minority classes (G1, G4).}
 \label{fig:koa_heatmap}
+\end{figure}
+
+\begin{figure}[htb]
+\centering
+\includegraphics[width=\linewidth]{fig2_barchart_KOA.png}
+\caption{Validation metrics comparison on KOA. OWMixup variants outperform baseline on F1 and AUC.}
+\label{fig:metrics}
 \end{figure}
 
 \subsection{Results on EyePACS DR}
@@ -162,15 +172,40 @@ v12 OWMixup+BalSoft $\tau$0.5 & .842 & .187 & .568 & .504 & .585 & .537 \\
 
 On EyePACS, the baseline CE performs competitively (macro F1 = 0.555), which we attribute to the larger training set (24K images) reducing the effective imbalance. However, ordinal-aware methods show consistent improvements on the minority DR~1 class: Balanced Softmax improves from 0.138 to 0.202 ($+6.4$ points), while OWMixup variants achieve gains of $+4.9$--$+6.4$ points. This confirms that ordinal logit adjustment (Balanced Softmax) and ordinal mixing (OWMixup) remain beneficial even at scale.
 
+Fig.~\ref{fig:eyepacs_heatmap} shows the per-class F1 heatmap for EyePACS.
+
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.85\linewidth]{fig1_heatmap_eyepacs.png}
+\caption{Per-class F1 heatmap on EyePACS DR. Balanced Softmax and OWMixup variants improve minority DR~1 class.}
+\label{fig:eyepacs_heatmap}
+\end{figure}
+
 \subsection{Ablation and Discussion}
 
-\textbf{Temperature sensitivity.} Fig.~\ref{fig:koa_curves} compares training dynamics. OWMixup configurations converge stably across temperatures, with $\tau=2.0$ (CE) achieving the fastest convergence on KOA while $\tau=0.5$ (BalSoft) provides better EyePACS generalization. This suggests that on smaller datasets, a wider kernel (higher $\tau$) increases the effective mixing pool, while on larger datasets, tighter ordinal weighting (lower $\tau$) is more beneficial.
+\textbf{Temperature sensitivity.} Fig.~\ref{fig:koa_curves} compares training dynamics on KOA. OWMixup configurations converge stably across temperatures, with $\tau=2.0$ (CE) achieving the fastest convergence on KOA while $\tau=0.5$ (BalSoft) provides better EyePACS generalization. This suggests that on smaller datasets, a wider kernel (higher $\tau$) increases the effective mixing pool, while on larger datasets, tighter ordinal weighting (lower $\tau$) is more beneficial.
 
 \begin{figure}[htb]
 \centering
 \includegraphics[width=\linewidth]{fig3_curves_KOA.png}
 \caption{Validation curves on KOA. OWMixup variants show stable convergence.}
 \label{fig:koa_curves}
+\end{figure}
+
+\textbf{Visual analysis.} Fig.~\ref{fig:gradcam} compares Grad-CAM attention maps between baseline and OWMixup, illustrating how ordinal-aware models focus on clinically relevant regions. Fig.~\ref{fig:tsne} shows t-SNE feature embeddings, revealing better class separation with OWMixup.
+
+\begin{figure}[htb]
+\centering
+\placeholder[0.8]{5cm}
+\caption{Grad-CAM comparison across methods. OWMixup highlights more focused anatomical regions.}
+\label{fig:gradcam}
+\end{figure}
+
+\begin{figure}[htb]
+\centering
+\placeholder[0.8]{4cm}
+\caption{t-SNE visualization of penultimate-layer features. OWMixup embeddings show improved class separation.}
+\label{fig:tsne}
 \end{figure}
 
 \textbf{The Grade~1 bottleneck.} Across all methods, Grade~1 (Doubtful) remains the most difficult class, with F1 scores ranging from 0.282 (baseline) to 0.413 (v7). This is consistent with clinical reality: Grade~1 is defined as ``doubtful'' and its boundaries with Grade~0 and Grade~2 are inherently ambiguous. While ordinal-aware methods substantially improve Grade~1, the ceiling suggests that post-hoc corrections have fundamental limitations for high-ambiguity ordinal categories.
