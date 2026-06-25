@@ -130,6 +130,7 @@ def run_gradcam_comparison(
     output_dir: str,
     num_per_class: int = 2,
     seed: int = 42,
+    suffix: str = "",
 ):
     """Compare Grad-CAM across multiple models for the same test images."""
     os.makedirs(output_dir, exist_ok=True)
@@ -182,7 +183,7 @@ def run_gradcam_comparison(
             axes[row_idx, col_idx + 1].axis("off")
 
     plt.tight_layout()
-    save_path = os.path.join(output_dir, "gradcam_comparison.png")
+    save_path = os.path.join(output_dir, f"gradcam_comparison{suffix}.png")
     fig.savefig(save_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     return save_path

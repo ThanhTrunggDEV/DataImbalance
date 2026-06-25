@@ -64,6 +64,7 @@ def run_tsne_comparison(
     device: torch.device,
     output_dir: str,
     perplexity: int = 30,
+    suffix: str = "",
 ):
     """Run t-SNE for multiple models and save a side-by-side grid."""
     os.makedirs(output_dir, exist_ok=True)
@@ -92,7 +93,7 @@ def run_tsne_comparison(
                for c in range(5)]
     fig.legend(handles=handles, loc="lower center", ncol=5, fontsize=8, frameon=False)
     plt.tight_layout(rect=[0, 0.08, 1, 1])
-    save_path = os.path.join(output_dir, "tsne_comparison.png")
+    save_path = os.path.join(output_dir, f"tsne_comparison{suffix}.png")
     fig.savefig(save_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     return save_path
