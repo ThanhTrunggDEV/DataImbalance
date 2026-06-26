@@ -95,9 +95,13 @@ v12 & OWMixup $\tau=0.5$ + BalSoft & Soft ordinal mixing + logit adjustment \\
 \end{table}
 
 \section{Experiments}
-\FloatBarrier
 
+We design our experiments to answer three questions: (i) do loss-based re-weighting methods (Balanced Softmax, Focal Loss) improve minority-class performance? (ii) does incorporating ordinal structure into augmentation add value beyond re-weighting alone? (iii) does OWMixup generalize across datasets of varying scale and modality?
+
+\FloatBarrier
 \subsection{Datasets}
+
+We select two medical imaging benchmarks that differ in scale, modality, and imbalance structure, allowing us to test ordinal-aware methods under varied conditions.
 
 \textbf{Knee OA (Chen~2018)}~\cite{chen2018knee} consists of 4,760 PA knee radiographs graded KL~0--4. The official split allocates 3,522 training and 1,238 test images. Class distribution is long-tailed: Grade~0 (Healthy) dominates with 1,800 samples, while Grade~4 (Severe) has only 449. Grade~1 (Doubtful) is particularly challenging due to its inherent ambiguity.
 
@@ -174,6 +178,8 @@ v12 OWMixup+BalSoft $\tau$0.5 & .842 & .187 & .568 & .504 & .585 & .537 \\
 
 \FloatBarrier
 \subsection{Ablation and Discussion}
+
+We ablate the key components of OWMixup: temperature sensitivity, visual feature quality, and the persistent Grade~1 bottleneck.
 
 \textbf{Temperature sensitivity.} Fig.~\ref{fig:koa_curves} compares training dynamics. OWMixup with $\tau=2.0$ (wide kernel) achieves the fastest convergence and highest macro F1 on KOA, while $\tau=0.5$ (narrow kernel) produces better cross-dataset generalization on EyePACS. This follows intuitively: smaller datasets benefit from a wider mixing pool (higher $\tau$), while larger datasets with sufficient intra-class variation prefer tighter ordinal focus (lower $\tau$).
 
