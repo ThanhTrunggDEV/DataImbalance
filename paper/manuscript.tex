@@ -8,6 +8,7 @@
 \usepackage{url}
 \usepackage{color}
 \usepackage{placeins}
+\usepackage{float}
 \def\UrlFont{\rmfamily}
 \newcommand{\placeholder}[2][0.85]{%
   \fbox{\parbox{#1\textwidth}{\centering\vspace{#2}{\color{gray}FIGURE PLACEHOLDER}\vspace{#2}}}}
@@ -106,13 +107,17 @@ All images are resized to $224\times224$ with ImageNet normalization. The traini
 
 \subsection{Implementation Details}
 
-All models use a ResNet-50 pretrained on ImageNet, with the final layer replaced by a 5-way classifier. We train for 30 epochs with batch size 32, Adam optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). Early stopping with patience 7 on validation F1-macro is applied. All runs use seed 42 for reproducibility. We report per-class F1 (primary), macro F1, accuracy, AUC-ROC, and Quadratic Weighted Kappa (QWK).
+All models use a ResNet-50 pretrained on ImageNet, with the final layer replaced by a 5-way classifier. We train for 30 epochs with batch size 32, Adam optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). Early stopping with patience 7 on validation F1-macro is applied. All runs use seed 42 for reproducibility.
+
+\subsection{Evaluation Metrics}
+
+We evaluate with five complementary metrics. \textbf{Per-class F1} is our primary measure---on imbalanced ordinal data, macro-averaged scores can mask severe disparity in individual classes. \textbf{Macro F1} (unweighted mean of per-class F1) is the secondary aggregate metric. \textbf{Quadratic Weighted Kappa (QWK)} captures ordinal consistency by penalizing predictions proportionally to their distance from the true grade, which is crucial for clinical grading scales. \textbf{Accuracy} and \textbf{per-class AUC-ROC} are reported as supplementary measures for completeness.
 
 \subsection{Results on Knee OA}
 
 Table~\ref{tab:koa_perclass} traces the progressive improvement from baseline to our proposed OWMixup. We follow the narrative of a researcher discovering that ordinal awareness is the key to unlocking minority-class performance.
 
-\begin{table}[h!]
+\begin{table}[H]
 \centering
 \caption{Per-class F1 scores on Knee OA (test set). Best per-column in bold. Support: G0=639, G1=296, G2=447, G3=223, G4=51.}
 \label{tab:koa_perclass}
@@ -139,21 +144,12 @@ v12 OWMixup+BalSoft $\tau$0.5 & .771 & .382 & \textbf{.642} & .798 & .832 & .685
 
 \textbf{OWMixup generalization.} Our proposed OWMixup (v11, $\tau=2.0$ + CE) achieves macro F1~=~0.681, competitive with v7, while the OWMixup + BalSoft variant (v12, $\tau=0.5$) achieves the single best Grade~2 F1 of 0.642 ($+3.4$~points over v7). The soft Gaussian kernel provides smoother ordinal weighting than the hard adjacent threshold, with the temperature $\tau$ offering a principled control knob.
 
-Fig.~\ref{fig:koa_heatmap} visualizes the per-class F1 heatmap, clearly showing how ordinal-aware methods (v7, v11, v12) elevate the darker low-F1 regions of Grade~1 relative to the baseline.
-
-\begin{figure}[h!]
-\centering
-\includegraphics[width=0.85\linewidth]{fig1_heatmap_KOA.png}
-\caption{Per-class F1 heatmap on KOA. Ordinal-aware methods (v7, v11, v12) elevate minority-class F1 (G1, G4) while maintaining majority-class performance.}
-\label{fig:koa_heatmap}
-\end{figure}
-
 \FloatBarrier
 \subsection{Results on EyePACS DR}
 
 The EyePACS dataset (24K training images) tests whether ordinal-aware methods generalize to large-scale medical imaging. Table~\ref{tab:eyepacs_perclass} presents results.
 
-\begin{table}[h!]
+\begin{table}[H]
 \centering
 \caption{Per-class F1 scores on EyePACS DR (test set). Support: C0=5161, C1=487, C2=1058, C3=175, C4=141.}
 \label{tab:eyepacs_perclass}
@@ -175,13 +171,6 @@ v12 OWMixup+BalSoft $\tau$0.5 & .842 & .187 & .568 & .504 & .585 & .537 \\
 \textbf{Scale changes the picture.} Unlike KOA, the baseline CE achieves the highest macro F1 (0.555), which we attribute to the larger training set reducing effective imbalance. However, a per-class analysis reveals the same ordinal-aware pattern: Balanced Softmax improves DR~1 from 0.138 to 0.202 ($+6.4$~points, a $46\%$ relative gain), and OWMixup variants show consistent improvements of $+4.9$ to $+6.4$~points on this minority class.
 
 \textbf{Lessons for practice.} The cross-dataset comparison reveals when ordinal methods matter most: they excel on smaller, more severely imbalanced datasets (KOA, +3.5~points macro F1) and provide targeted minority-class improvements on larger datasets (EyePACS, +6.4~points on DR~1). This makes them a safe default---they never degrade majority-class accuracy by more than 2~points while consistently lifting minority performance.
-
-\begin{figure}[h!]
-\centering
-\includegraphics[width=0.85\linewidth]{fig1_heatmap_eyepacs.png}
-\caption{Per-class F1 heatmap on EyePACS DR. Ordinal logit adjustment improves minority DR~1 class across all ordinal-aware methods.}
-\label{fig:eyepacs_heatmap}
-\end{figure}
 
 \FloatBarrier
 \subsection{Ablation and Discussion}
