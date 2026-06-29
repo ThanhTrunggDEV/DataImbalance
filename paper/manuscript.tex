@@ -43,39 +43,48 @@ In this paper, we propose \textit{Ordinal-Weighted Mixup} (OWMixup), which intro
 
 \section{Methodology}
 
-In this paper, we propose Ordinal-Weighted Mixup (OWMixup), a novel mixup variant that incorporates ordinal structure through a Gaussian kernel over class distances. This section first reviews the standard Mixup formulation, then introduces our proposed ordinal weighting mechanism and its theoretical properties.
+In this work, we combine mixup-based augmentation with ordinal-aware pairing to address class imbalance in medical image grading. We first review the standard Mixup formulation, then present our proposed approach which biases the mixing process toward ordinal structure.
 
-\subsection{Ordinal-Weighted Mixup (OWMixup)}
+\subsection{Mixup Regularization}
 
-\noindent\textbf{Mixup Regularization.} Standard Mixup~\cite{zhang2018mixup} was originally introduced as a simple regularization technique to reduce overfitting in deep neural networks. Let $(\mathbf{x}_i, y_i)$ denote a training example consisting of an image $\mathbf{x}_i$ and its one-hot encoded label $y_i$, with $f_\theta$ being a neural network approximating $f_\theta(\mathbf{x}_i) \approx y_i$. Mixup creates synthetic examples and labels as convex combinations of random sample pairs:
+Standard Mixup~\cite{zhang2018mixup} was introduced as a simple yet effective regularization technique to reduce overfitting. Given a training example $(\mathbf{x}_i, y_i)$ consisting of an image $\mathbf{x}_i$ and its one-hot label $y_i$, Mixup creates convex combinations with a randomly paired sample $(\mathbf{x}_j, y_j)$:
+
 \begin{equation}
 \hat{\mathbf{x}} = \lambda \mathbf{x}_i + (1-\lambda)\mathbf{x}_j,\quad
 \hat{y} = \lambda y_i + (1-\lambda) y_j,
 \label{eq:mixup}
 \end{equation}
-where $\lambda \sim \text{Beta}(\alpha, \alpha)$, with $\alpha > 0$. Since $\lambda \in [0,1]$, $\hat{\mathbf{x}}$ and $\hat{y}$ are random convex combinations of data and label inputs. Typical values of $\alpha$ range in $[0.1, 0.4]$, meaning $\hat{\mathbf{x}}$ will likely be closer to either $\mathbf{x}_i$ or $\mathbf{x}_j$. Despite its simplicity, optimizing $f_\theta$ on mixed-up data has been shown to improve generalization and model calibration~\cite{zhang2018mixup}. However, Eq.~\eqref{eq:mixup} treats all class pairs equally, ignoring the ordinal structure inherent in medical grading scales.
 
-We propose \textit{Ordinal-Weighted Mixup} (OWMixup), which introduces a mixing weight based on ordinal distance:
+where $\lambda \sim \text{Beta}(\alpha, \alpha)$ with $\alpha = 0.4$. The mixed samples encourage the model to behave linearly between training examples, improving generalization and calibration~\cite{zhang2018mixup}. However, vanilla Mixup treats all class pairs equally, ignoring the ordinal nature of medical grading scales.
+
+\subsection{Ordinal-Weighted Mixup (OWMixup)}
+
+We propose OWMixup, which biases the Mixup pairing process toward ordinal structure. The key idea is to control \textit{which} samples are mixed together, rather than how aggressively they are mixed. We define a Gaussian kernel over class distances:
+
 \begin{equation}
-w_{ij} = \exp\!\left(-\frac{(y_i - y_j)^2}{2\tau^2}\right),
+w_{ij} = \exp\!\left(-\frac{(y_i - y_j)^2}{\tau^2}\right),
 \label{eq:kernel}
 \end{equation}
-where $\tau > 0$ is a temperature hyperparameter controlling the kernel width. The mixing coefficient is then:
+
+where $\tau > 0$ is a temperature parameter controlling how quickly the weight decays with ordinal distance. The resulting pairing probability for a pair $(i,j)$ is:
+
 \begin{equation}
-\lambda' = w_{ij} \cdot \lambda + (1 - w_{ij}) \cdot 0.5.
-\label{eq:lambda}
+p_{ij} = \frac{w_{ij} \cdot w_{ij}^{\text{freq}}}{\sum_{k} w_{ik} \cdot w_{ik}^{\text{freq}}},
+\label{eq:pairing}
 \end{equation}
 
-This formulation has three desirable properties:
+where $w_{ij}^{\text{freq}} = 1 / \sqrt{n_{y_i} \cdot n_{y_j}}$ is an inverse square-root class frequency weight that further encourages mixing with rare classes. The $\lambda$ for the selected pair is drawn from $\text{Beta}(\alpha, \alpha)$ independently.
+
+This formulation has three properties:
 \begin{itemize}
-  \item When $\tau \to 0$, $w_{ij} \approx 0$ for $y_i \neq y_j$, so only same-class pairs are mixed (no cross-class augmentation).
-  \item When $\tau \to \infty$, $w_{ij} \to 1$ for all $(i,j)$, recovering vanilla mixup.
-  \item At intermediate $\tau$ values, $w_{ij}$ smoothly decays with ordinal distance, assigning higher weight to adjacent-class pairs. This can be interpreted as a \textit{soft} generalization of adjacent mixup, which applies a hard threshold $|y_i - y_j| \leq 1$ instead.
+  \item When $\tau \to 0$, $w_{ij} \to 0$ for $y_i \neq y_j$, so samples are almost always paired within the same class (no cross-class mixing).
+  \item When $\tau \to \infty$, $w_{ij} \to 1$ for all pairs, recovering vanilla Mixup with class-frequency biasing.
+  \item At intermediate $\tau$, the pairing probability decays smoothly with ordinal distance. This acts as a \textit{soft} generalization of Adjacent Mixup, which applies a hard threshold $|y_i - y_j| \leq 1$.
 \end{itemize}
 
 \subsection{Experimental Configurations}
 
-We evaluate six configurations (Table~\ref{tab:config}) that form a progressive narrative from simple to ordinal-aware methods. All use a ResNet-50~\cite{he2016deep} backbone. Balanced Softmax~\cite{ren2020balanced} adjusts logits via class priors: $p_k' \propto n_k e^{z_k}$. Focal Loss~\cite{lin2017focal} down-weights easy samples: $\mathcal{L}_{\text{FL}} = -\sum_k (1-p_k)^\gamma \log p_k$ with $\gamma=2.0$. Adjacent mixup restricts mixing to pairs with $|y_i - y_j| \leq 1$.
+We evaluate six configurations forming a progressive narrative. All use a ResNet-50~\cite{he2016deep} backbone. \textbf{Balanced Softmax}~\cite{ren2020balanced} adjusts logits via class priors: $p_k' \propto n_k e^{z_k}$. \textbf{Focal Loss}~\cite{lin2017focal} down-weights easy samples: $\mathcal{L}_{\text{FL}} = -\sum_k (1-p_k)^\gamma \log p_k$ with $\gamma=2.0$. \textbf{Adjacent Mixup} restricts mixing to pairs with $|y_i - y_j| \leq 1$.
 
 \begin{table}[htb]
 \centering
@@ -86,12 +95,12 @@ We evaluate six configurations (Table~\ref{tab:config}) that form a progressive 
 \toprule
 ID & Method & Imbalance Strategy \\
 \midrule
-v1 & Cross-Entropy (Baseline) & WeightedRandomSampler \\
+v1 & Cross-Entropy (Baseline) & None (vanilla training) \\
 v3 & Balanced Softmax & Logit adjustment via class priors \\
 v5 & Focal Loss ($\gamma=2$) & Easy-sample down-weighting \\
 v7 & Adjacent Mixup + BalSoft & Hard ordinal mixing + logit adjustment \\
-v11 & OWMixup $\tau=2.0$ + CE & Soft ordinal mixing (proposed) \\
-v12 & OWMixup $\tau=0.5$ + BalSoft & Soft ordinal mixing + logit adjustment \\
+v11 & OWMixup $\tau=2.0$ + CE & Soft ordinal pairing (proposed) \\
+v12 & OWMixup $\tau=0.5$ + BalSoft & Soft ordinal pairing + logit adjustment \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -109,11 +118,11 @@ We select two medical imaging benchmarks that differ in scale, modality, and imb
 
 \textbf{EyePACS DR}~\cite{gulshan2016development} contains 35,108 retinal fundus images from the EyePACS training partition, split via stratified 70/10/20 into 24,576 training, 3,511 validation, and 7,022 test images. Class~0 (No DR) dominates (5,161 test samples), while DR~3 (175) and DR~4 (141) are the rarest. This dataset tests whether ordinal-aware methods generalize to larger, noisier medical imaging tasks.
 
-All images are resized to $224\times224$ with ImageNet normalization. The training set is augmented with random horizontal flip and $\pm 10^\circ$ rotation.
+All images are resized to $224\times224$ with ImageNet normalization. Training augmentations include random resized crop, random horizontal flip, $\pm 10^\circ$ rotation, and color jitter (brightness and contrast $\pm 0.2$).
 
 \subsection{Implementation Details}
 
-All models use a ResNet-50 pretrained on ImageNet, with the final layer replaced by a 5-way classifier. We train for 30 epochs with batch size 32, Adam optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). Early stopping with patience 7 on validation F1-macro is applied. All runs use seed 42 for reproducibility. All experiments are implemented in PyTorch and trained on a single NVIDIA RTX A4000 GPU.
+All models use a ResNet-50 pretrained on ImageNet, with the final classification head consisting of Dropout($p=0.5$) followed by a linear layer projecting the $2048$-d features to $5$ classes. We train for $30$ epochs with batch size $32$, AdamW optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). The learning rate is halved when validation loss plateaus (ReduceLROnPlateau, patience $3$, factor $0.5$). Gradients are clipped to a maximum norm of $1.0$. Early stopping with patience $7$ on validation macro F1 is applied. All runs use seed $42$ for reproducibility. Experiments are implemented in PyTorch and trained on a single NVIDIA RTX A4000 GPU ($16$ GB).
 
 \subsection{Evaluation Metrics}
 
