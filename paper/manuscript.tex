@@ -29,16 +29,18 @@ Class imbalance is a persistent challenge in medical image classification, parti
 
 \section{Introduction}
 
-Medical image classification tasks such as Knee Osteoarthritis (OA) severity grading using the Kellgren-Lawrence (KL) system~\cite{kellgren1957radiological} and Diabetic Retinopathy (DR) grading~\cite{gulshan2016development} share two fundamental challenges: they are \textit{ordinal}---grades follow a natural progression from healthy to severe---and \textit{imbalanced}---healthy cases vastly outnumber severe ones.
+Medical image classification tasks such as Knee Osteoarthritis (OA) severity grading using the Kellgren-Lawrence (KL) system~\cite{kellgren1957radiological,tiulpin2018automatic} and Diabetic Retinopathy (DR) grading~\cite{gulshan2016development} share two fundamental challenges: they are \textit{ordinal}---grades follow a natural progression from healthy to severe---and \textit{imbalanced}---healthy cases vastly outnumber severe ones~\cite{buda2018systematic}. Standard cross-entropy training is particularly ill-suited for these tasks, as it tends to overfit minority grades while ignoring the ordinal structure that could guide generalization.
 
-Class imbalance in medical imaging is typically addressed through re-weighting strategies~\cite{lin2017focal,ren2020balanced} or data augmentation methods such as Mixup~\cite{zhang2018mixup} and its variants~\cite{galdran2021balanced,greenewald2023kmixup,ju2024monica}. However, these approaches are designed for generic multi-class settings and do not exploit the ordinal relationships between classes. Adjacent mixup~\cite{zhang2018mixup} restricts mixing to samples from neighboring ordinal classes, but its hard-threshold design does not provide a principled way to control the strength of ordinal weighting.
+A large body of work addresses class imbalance through loss-based corrections. Focal Loss~\cite{lin2017focal} down-weights easy samples, Balanced Softmax~\cite{ren2020balanced} adjusts logits via class priors, Label-Distribution-Aware Margin loss (LDAM)~\cite{cao2019ldam} enforces larger margins for rare classes, and Class-Balanced loss~\cite{cui2019classbalanced} re-weights by the effective number of samples. Decoupling representation learning from classifier learning~\cite{kang2020decoupling} further improves long-tail performance. Data augmentation offers an alternative route: Mixup~\cite{zhang2018mixup} creates convex combinations of training pairs, and its variants extend this idea to hidden representations~\cite{verma2019manifold}, salient regions~\cite{yun2019cutmix}, or class-balanced sampling~\cite{galdran2021balanced}. However, all these methods are designed for generic multi-class settings and do not exploit the ordinal relationships between grades.
 
-In this paper, we propose \textit{Ordinal-Weighted Mixup} (OWMixup), which introduces a continuous temperature parameter $\tau$ to smoothly interpolate between class-preserving augmentation ($\tau \to 0$), soft ordinal-aware mixing (intermediate $\tau$), and vanilla mixup ($\tau \to \infty$). We systematically compare six experimental configurations---spanning loss-based methods, hard ordinal augmentation, and OWMixup---on the Knee OA and EyePACS DR datasets. Our contributions are:
+Ordinal regression methods such as CORAL~\cite{niu2016coral} explicitly model the ordinal structure by learning binary classifiers for each threshold between consecutive classes. While effective, they treat these thresholds as fixed decision boundaries and do not integrate ordinal information into the data augmentation process. A simple way to incorporate ordinality into mixup is to restrict pairing to samples whose grades differ by at most one---often called adjacent mixup. However, this hard-threshold design lacks a principled control knob: it either applies full ordinal weight or none, without a way to interpolate between the two.
+
+In this paper, we propose \textit{Ordinal-Weighted Mixup} (OWMixup), which introduces a continuous temperature parameter $\tau$ that controls the strength of ordinal weighting via a Gaussian kernel over class distances. Our approach smoothly interpolates between class-preserving augmentation ($\tau \to 0$), soft ordinal-aware mixing (intermediate $\tau$), and vanilla mixup with frequency biasing ($\tau \to \infty$). We systematically compare six configurations---spanning loss-based methods, hard ordinal augmentation, and OWMixup---on the Knee OA and EyePACS DR datasets. Our contributions are:
 
 \begin{itemize}
-  \item \textbf{OWMixup}, a novel mixup variant with a Gaussian ordinal kernel controlled by temperature $\tau$, generalizing adjacent mixup as a special case;
+  \item \textbf{OWMixup}, a novel mixup variant with a Gaussian ordinal kernel controlled by temperature $\tau$, generalizing adjacent mixup as a soft-constrained special case;
   \item A \textbf{systematic per-class F1 comparison} across six configurations on two medical datasets, revealing how ordinal-aware methods redistribute learning capacity;
-  \item \textbf{Key finding}: Adjacent Mixup + Balanced Softmax improves Grade~1 F1 by $+13.1$ points on KOA, while OWMixup achieves competitive cross-dataset performance (EyePACS macro F1 = 0.537 vs baseline 0.555).
+  \item \textbf{Key finding}: Adjacent Mixup + Balanced Softmax improves Grade~1 F1 by $+13.1$ points on KOA, while OWMixup achieves competitive performance (EyePACS macro F1 = 0.537 vs baseline 0.555).
 \end{itemize}
 
 \section{Methodology}
@@ -55,7 +57,7 @@ Standard Mixup~\cite{zhang2018mixup} was introduced as a simple yet effective re
 \label{eq:mixup}
 \end{equation}
 
-where $\lambda \sim \text{Beta}(\alpha, \alpha)$ with $\alpha = 0.4$. The mixed samples encourage the model to behave linearly between training examples, improving generalization and calibration~\cite{zhang2018mixup}. However, vanilla Mixup treats all class pairs equally, ignoring the ordinal nature of medical grading scales.
+where $\lambda \sim \text{Beta}(\alpha, \alpha)$ with $\alpha = 0.4$. The mixed samples encourage the model to behave linearly between training examples, improving generalization and calibration~\cite{zhang2018mixup,thulasidasan2019mixup}. However, vanilla Mixup treats all class pairs equally, ignoring the ordinal nature of medical grading scales.
 
 \subsection{Ordinal-Weighted Mixup (OWMixup)}
 
@@ -126,7 +128,7 @@ All models use a ResNet-50 pretrained on ImageNet, with the final classification
 
 \subsection{Evaluation Metrics}
 
-We evaluate with five complementary metrics. \textbf{Per-class F1} is our primary measure---on imbalanced ordinal data, macro-averaged scores can mask severe disparity in individual classes. \textbf{Macro F1} (unweighted mean of per-class F1) is the secondary aggregate metric. \textbf{Quadratic Weighted Kappa (QWK)} captures ordinal consistency by penalizing predictions proportionally to their distance from the true grade, which is crucial for clinical grading scales. \textbf{Accuracy} and \textbf{per-class AUC-ROC} are reported as supplementary measures for completeness.
+We evaluate with five complementary metrics. \textbf{Per-class F1} is our primary measure---on imbalanced ordinal data, macro-averaged scores can mask severe disparity in individual classes. \textbf{Macro F1} (unweighted mean of per-class F1) is the secondary aggregate metric. \textbf{Quadratic Weighted Kappa (QWK)}~\cite{cohen1960coefficient} captures ordinal consistency by penalizing predictions proportionally to their distance from the true grade, which is crucial for clinical grading scales. \textbf{Accuracy} and \textbf{per-class AUC-ROC} are reported as supplementary measures for completeness.
 
 \subsection{Results on Knee OA}
 
@@ -201,7 +203,7 @@ We ablate the key components of OWMixup: temperature sensitivity, visual feature
 \label{fig:koa_curves}
 \end{figure}
 
-\textbf{Visual analysis.} Fig.~\ref{fig:gradcam} compares Grad-CAM attention maps across all methods on KOA. Ordinal-aware methods produce more localized attention on minority classes: Adjacent + BalSoft achieves the tightest focus on Grade~1 (attention score $-36.5$ vs baseline $-32.3$, where more negative indicates tighter heatmap concentration), corresponding directly to its $+13.1$ point F1 improvement. OWMixup variants show similarly focused attention on Grade~2 ($-36.1$) and Grade~4 ($-40.4$), matching their strong per-class performance. In contrast, Balanced Softmax alone produces the most diffuse attention (Grade~0: $-23.9$ vs baseline $-35.3$), suggesting that logit redistribution without ordinal-aware attention does not improve feature focus.
+\textbf{Visual analysis.} Fig.~\ref{fig:gradcam} compares Grad-CAM~\cite{selvaraju2017gradcam} attention maps across all methods on KOA. Ordinal-aware methods produce more localized attention on minority classes: Adjacent + BalSoft achieves the tightest focus on Grade~1 (attention score $-36.5$ vs baseline $-32.3$, where more negative indicates tighter heatmap concentration), corresponding directly to its $+13.1$ point F1 improvement. OWMixup variants show similarly focused attention on Grade~2 ($-36.1$) and Grade~4 ($-40.4$), matching their strong per-class performance. In contrast, Balanced Softmax alone produces the most diffuse attention (Grade~0: $-23.9$ vs baseline $-35.3$), suggesting that logit redistribution without ordinal-aware attention does not improve feature focus.
 
 \begin{figure}[h!]
 \centering
@@ -210,7 +212,7 @@ We ablate the key components of OWMixup: temperature sensitivity, visual feature
 \label{fig:gradcam}
 \end{figure}
 
-Fig.~\ref{fig:tsne} shows t-SNE embeddings of penultimate-layer features. The cluster structure is similar across all methods, indicating that ordinal awareness refines decision boundaries rather than fundamentally restructuring the feature space. Small but consistent improvements in inter-class separation are visible for Grade~1 under ordinal-aware methods, consistent with the per-class F1 gains.
+Fig.~\ref{fig:tsne} shows t-SNE~\cite{vandermaaten2008tsne} embeddings of penultimate-layer features. The cluster structure is similar across all methods, indicating that ordinal awareness refines decision boundaries rather than fundamentally restructuring the feature space. Small but consistent improvements in inter-class separation are visible for Grade~1 under ordinal-aware methods, consistent with the per-class F1 gains.
 
 \begin{figure}[h!]
 \centering
