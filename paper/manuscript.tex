@@ -190,19 +190,21 @@ We ablate the key components of OWMixup: temperature sensitivity, visual feature
 \label{fig:koa_curves}
 \end{figure}
 
-\textbf{Visual analysis.} To understand how ordinal-aware methods alter model behavior, we compare Grad-CAM attention maps between baseline and OWMixup (Fig.~\ref{fig:gradcam}). OWMixup produces more focused attention on clinically relevant anatomical regions. The t-SNE embeddings (Fig.~\ref{fig:tsne}) of penultimate-layer features further confirm that OWMixup improves inter-class separation, particularly between the ambiguous Grade~1 and its neighbors.
+\textbf{Visual analysis.} Fig.~\ref{fig:gradcam} compares Grad-CAM attention maps across all methods on KOA. Ordinal-aware methods produce more localized attention on minority classes: Adjacent + BalSoft achieves the tightest focus on Grade~1 (attention score $-36.5$ vs baseline $-32.3$, where more negative indicates tighter heatmap concentration), corresponding directly to its $+13.1$ point F1 improvement. OWMixup variants show similarly focused attention on Grade~2 ($-36.1$) and Grade~4 ($-40.4$), matching their strong per-class performance. In contrast, Balanced Softmax alone produces the most diffuse attention (Grade~0: $-23.9$ vs baseline $-35.3$), suggesting that logit redistribution without ordinal-aware attention does not improve feature focus.
 
 \begin{figure}[h!]
 \centering
-\placeholder[0.85]{5cm}
-\caption{Grad-CAM comparison between baseline (CE) and OWMixup. OWMixup highlights more focused anatomical regions.}
+\includegraphics[width=\linewidth]{gradcam_KOA.png}
+\caption{Grad-CAM comparison across six methods on KOA. Ordinal-aware methods (v7, v11, v12) show tighter attention on minority classes (Grade~1, Grade~4).}
 \label{fig:gradcam}
 \end{figure}
 
+Fig.~\ref{fig:tsne} shows t-SNE embeddings of penultimate-layer features. The cluster structure is similar across all methods, indicating that ordinal awareness refines decision boundaries rather than fundamentally restructuring the feature space. Small but consistent improvements in inter-class separation are visible for Grade~1 under ordinal-aware methods, consistent with the per-class F1 gains.
+
 \begin{figure}[h!]
 \centering
-\placeholder[0.85]{4cm}
-\caption{t-SNE visualization of penultimate-layer features. OWMixup embeddings show improved class separation.}
+\includegraphics[width=\linewidth]{tsne_KOA.png}
+\caption{t-SNE visualization of penultimate-layer features on KOA. Cluster structure is preserved across methods; ordinal-aware methods show marginally improved separation for Grade~1.}
 \label{fig:tsne}
 \end{figure}
 
