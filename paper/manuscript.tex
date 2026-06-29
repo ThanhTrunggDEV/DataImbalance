@@ -82,13 +82,17 @@ This formulation has three properties:
   \item At intermediate $\tau$, the pairing probability decays smoothly with ordinal distance. This acts as a \textit{soft} generalization of Adjacent Mixup, which applies a hard threshold $|y_i - y_j| \leq 1$.
 \end{itemize}
 
+\section{Experiments}
+
+In this section we detail our experimental setup: considered datasets with relevant statistics, baseline techniques for comparison, evaluation metrics, and a discussion on the numerical differences in performance between methods.
+
 \subsection{Experimental Configurations}
 
-We evaluate six configurations forming a progressive narrative. All use a ResNet-50~\cite{he2016deep} backbone. \textbf{Balanced Softmax}~\cite{ren2020balanced} adjusts logits via class priors: $p_k' \propto n_k e^{z_k}$. \textbf{Focal Loss}~\cite{lin2017focal} down-weights easy samples: $\mathcal{L}_{\text{FL}} = -\sum_k (1-p_k)^\gamma \log p_k$ with $\gamma=2.0$. \textbf{Adjacent Mixup} restricts mixing to pairs with $|y_i - y_j| \leq 1$.
+We design six configurations that progressively isolate the role of ordinal structure in imbalance correction. The baseline (Cross-Entropy) establishes the lower bound. Two loss-based re-weighting methods---Balanced Softmax~\cite{ren2020balanced} (logit adjustment via class priors) and Focal Loss~\cite{lin2017focal} ($\gamma=2$, easy-sample down-weighting)---test whether re-weighting alone suffices. Adjacent Mixup with Balanced Softmax introduces a hard ordinal constraint, mixing only samples with $|y_i - y_j| \leq 1$. Our proposed OWMixup replaces this hard threshold with its soft Gaussian kernel, evaluated in two variants: with CE ($\tau=2.0$) and with Balanced Softmax ($\tau=0.5$). Table~\ref{tab:config} summarizes all configurations.
 
-\begin{table}[htb]
+\begin{table}[H]
 \centering
-\caption{Six experimental configurations.}
+\caption{Summary of experimental configurations.}
 \label{tab:config}
 \small
 \begin{tabular}{lc}
@@ -104,10 +108,6 @@ OWMixup $\tau=0.5$ + BalSoft & Soft ordinal pairing + logit adjustment \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\section{Experiments}
-
-In this section we detail our experimental setup: considered datasets with relevant statistics, baseline techniques for comparison, evaluation metrics, and a discussion on the numerical differences in performance between methods.
 
 \FloatBarrier
 \subsection{Datasets}
