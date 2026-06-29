@@ -43,15 +43,17 @@ In this paper, we propose \textit{Ordinal-Weighted Mixup} (OWMixup), which intro
 
 \section{Methodology}
 
+In this paper, we propose Ordinal-Weighted Mixup (OWMixup), a novel mixup variant that incorporates ordinal structure through a Gaussian kernel over class distances. This section first reviews the standard Mixup formulation, then introduces our proposed ordinal weighting mechanism and its theoretical properties.
+
 \subsection{Ordinal-Weighted Mixup (OWMixup)}
 
-Standard Mixup~\cite{zhang2018mixup} creates convex combinations of random sample pairs:
+\noindent\textbf{Mixup Regularization.} Standard Mixup~\cite{zhang2018mixup} was originally introduced as a simple regularization technique to reduce overfitting in deep neural networks. Let $(\mathbf{x}_i, y_i)$ denote a training example consisting of an image $\mathbf{x}_i$ and its one-hot encoded label $y_i$, with $f_\theta$ being a neural network approximating $f_\theta(\mathbf{x}_i) \approx y_i$. Mixup creates synthetic examples and labels as convex combinations of random sample pairs:
 \begin{equation}
-\tilde{\mathbf{x}} = \lambda \mathbf{x}_i + (1-\lambda)\mathbf{x}_j,\quad
-\tilde{y} = \lambda y_i + (1-\lambda) y_j,
+\hat{\mathbf{x}} = \lambda \mathbf{x}_i + (1-\lambda)\mathbf{x}_j,\quad
+\hat{y} = \lambda y_i + (1-\lambda) y_j,
 \label{eq:mixup}
 \end{equation}
-with $\lambda \sim \text{Beta}(\alpha, \alpha)$ where $\alpha = 0.4$. While effective, Eq.~\eqref{eq:mixup} treats all class pairs equally, ignoring ordinal structure.
+where $\lambda \sim \text{Beta}(\alpha, \alpha)$, with $\alpha > 0$. Since $\lambda \in [0,1]$, $\hat{\mathbf{x}}$ and $\hat{y}$ are random convex combinations of data and label inputs. Typical values of $\alpha$ range in $[0.1, 0.4]$, meaning $\hat{\mathbf{x}}$ will likely be closer to either $\mathbf{x}_i$ or $\mathbf{x}_j$. Despite its simplicity, optimizing $f_\theta$ on mixed-up data has been shown to improve generalization and model calibration~\cite{zhang2018mixup}. However, Eq.~\eqref{eq:mixup} treats all class pairs equally, ignoring the ordinal structure inherent in medical grading scales.
 
 We propose \textit{Ordinal-Weighted Mixup} (OWMixup), which introduces a mixing weight based on ordinal distance:
 \begin{equation}
