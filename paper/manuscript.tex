@@ -111,7 +111,7 @@ All images are resized to $224\times224$ with ImageNet normalization. The traini
 
 \subsection{Implementation Details}
 
-All models use a ResNet-50 pretrained on ImageNet, with the final layer replaced by a 5-way classifier. We train for 30 epochs with batch size 32, Adam optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). Early stopping with patience 7 on validation F1-macro is applied. All runs use seed 42 for reproducibility.
+All models use a ResNet-50 pretrained on ImageNet, with the final layer replaced by a 5-way classifier. We train for 30 epochs with batch size 32, Adam optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). Early stopping with patience 7 on validation F1-macro is applied. All runs use seed 42 for reproducibility. All experiments are implemented in PyTorch and trained on a single NVIDIA RTX A4000 GPU.
 
 \subsection{Evaluation Metrics}
 
