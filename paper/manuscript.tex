@@ -9,6 +9,8 @@
 \usepackage{color}
 \usepackage{placeins}
 \usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 \def\UrlFont{\rmfamily}
 \newcommand{\placeholder}[2][0.85]{%
   \fbox{\parbox{#1\textwidth}{\centering\vspace{#2}{\color{gray}FIGURE PLACEHOLDER}\vspace{#2}}}}
@@ -48,6 +50,8 @@ In this paper, we propose \textit{Ordinal-Weighted Mixup} (OWMixup), which intro
 \textbf{Data Augmentation and Mixup.} Data augmentation offers an alternative route to imbalance correction. Mixup~\cite{zhang2018mixup} creates convex combinations of training pairs, encouraging linear behavior between classes. Its variants extend this idea to hidden representations (Manifold Mixup~\cite{verma2019manifold}), salient regions (CutMix~\cite{yun2019cutmix}), or class-balanced sampling~\cite{galdran2021balanced}. However, these methods treat all inter-class relationships symmetrically and are not designed to exploit ordinal severity scales.
 
 \textbf{Ordinal Regression.} Ordinal regression methods explicitly model the graded structure of labels. For instance, CORAL~\cite{niu2016coral} learns a set of binary classifiers for each threshold between consecutive classes, enforcing weight-sharing across rank boundaries. While highly effective, these methods treat thresholds as fixed decision boundaries and generally do not integrate ordinal priors into the data augmentation process itself. A simple way to incorporate ordinality into mixup is to restrict pairing to samples whose grades differ by at most one (Adjacent Mixup). However, this hard-threshold design lacks a principled control knob to interpolate between strict ordinal constraint and full dataset mixing.
+
+\textbf{Deep Learning in Medical Grading.} The automation of severity grading in Knee OA and Diabetic Retinopathy has seen rapid progress with the advent of deep Convolutional Neural Networks (CNNs). For Knee OA, Tiulpin et al.~\cite{tiulpin2018automatic} proposed a Siamese network architecture that leverages the symmetry of knee joints, while other works have explored multi-modal approaches combining X-rays with patient metadata. For DR, Gulshan et al.~\cite{gulshan2016development} demonstrated that deep networks could match ophthalmologist-level performance on large datasets. However, these landmark studies primarily treat grading as a standard classification or regression task. When treating it as classification, the ordinal severity scale is ignored. When treating it as regression, the discrete and often non-linear nature of clinical grades (e.g., the jump from Grade 3 to 4 is not clinically equivalent to Grade 0 to 1) poses significant challenges. Our work bridges this gap by retaining the classification framework while injecting ordinal inductive biases directly through data augmentation.
 
 \section{Methodology}
 
@@ -89,6 +93,27 @@ This formulation has three properties:
   \item When $\tau \to \infty$, $w_{ij} \to 1$ for all pairs, recovering vanilla Mixup with class-frequency biasing.
   \item At intermediate $\tau$, the pairing probability decays smoothly with ordinal distance. This acts as a \textit{soft} generalization of Adjacent Mixup, which applies a hard threshold $|y_i - y_j| \leq 1$.
 \end{itemize}
+
+\begin{algorithm}[H]
+\caption{Ordinal-Weighted Mixup (OWMixup)}
+\label{alg:owmixup}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Mini-batch of images $X = \{\mathbf{x}_1, \dots, \mathbf{x}_B\}$, labels $Y = \{y_1, \dots, y_B\}$
+\State \textbf{Parameters:} Temperature $\tau$, Beta hyperparameter $\alpha$
+\State \textbf{Output:} Mixed images $\hat{X}$, mixed labels $\hat{Y}$
+\For{$i = 1$ to $B$}
+    \State Compute ordinal distances: $d_{ik} = (y_i - y_k)^2$ for $k \in \{1, \dots, B\}$
+    \State Apply Gaussian kernel: $w_{ik} = \exp(-d_{ik} / \tau^2)$
+    \State Apply inverse frequency weight: $w_{ik}^{\text{freq}} = 1 / \sqrt{n_{y_i} n_{y_k}}$
+    \State Compute pairing probabilities: $p_{ik} = \frac{w_{ik} w_{ik}^{\text{freq}}}{\sum_j w_{ij} w_{ij}^{\text{freq}}}$
+    \State Sample pairing index $j \sim \text{Categorical}(p_{i1}, \dots, p_{iB})$
+    \State Sample mixing weight $\lambda \sim \text{Beta}(\alpha, \alpha)$
+    \State $\hat{\mathbf{x}}_i = \lambda \mathbf{x}_i + (1-\lambda) \mathbf{x}_j$
+    \State $\hat{y}_i = \lambda y_i + (1-\lambda) y_j$
+\EndFor
+\State \Return $\hat{X} = \{\hat{\mathbf{x}}_1, \dots, \hat{\mathbf{x}}_B\}, \hat{Y} = \{\hat{y}_1, \dots, \hat{y}_B\}$
+\end{algorithmic}
+\end{algorithm}
 
 \subsection{Optimization Objective}
 
@@ -140,7 +165,9 @@ All images are resized to $224\times224$ with ImageNet normalization. Training a
 
 \subsection{Implementation Details}
 
-All models use a ResNet-50~\cite{he2016deep} pretrained on ImageNet, with the final classification head consisting of Dropout($p=0.5$) followed by a linear layer projecting the $2048$-d features to $5$ classes. We train for $30$ epochs with batch size $32$, AdamW optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). The learning rate is halved when validation loss plateaus (ReduceLROnPlateau, patience $3$, factor $0.5$). Gradients are clipped to a maximum norm of $1.0$. Early stopping with patience $7$ on validation macro F1 is applied. All runs use seed $42$ for reproducibility. Experiments are implemented in PyTorch and trained on a single NVIDIA RTX A4000 GPU ($16$ GB).
+All models use a ResNet-50~\cite{he2016deep} pretrained on ImageNet, with the final classification head consisting of Dropout($p=0.5$) followed by a linear layer projecting the $2048$-d features to $5$ classes. We train for $30$ epochs with batch size $32$, AdamW optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). The learning rate is halved when validation loss plateaus (ReduceLROnPlateau, patience $3$, factor $0.5$). Gradients are clipped to a maximum norm of $1.0$. Early stopping with patience $7$ on validation macro F1 is applied. All runs use seed $42$ for reproducibility. Experiments are implemented in PyTorch and trained on a single NVIDIA RTX A4000 GPU ($16$ GB). 
+
+\textbf{Hyperparameter Tuning and Reproducibility:} The temperature parameter $\tau$ for OWMixup was determined via a grid search over $\{0.5, 1.0, 1.5, 2.0\}$ on the validation set. We observed that smaller datasets with higher noise (KOA) benefited from a wider kernel ($\tau=2.0$) when used with standard Cross-Entropy, whereas larger datasets (EyePACS) responded better to a sharper kernel ($\tau=0.5$) combined with Balanced Softmax. The Beta distribution parameter for Mixup was fixed at $\alpha=0.4$ across all experiments, following standard practice~\cite{zhang2018mixup}.
 
 \subsection{Evaluation Metrics}
 
@@ -238,6 +265,8 @@ Fig.~\ref{fig:tsne} shows t-SNE~\cite{vandermaaten2008tsne} embeddings of penult
 \caption{t-SNE visualization of penultimate-layer features on KOA. Cluster structure is preserved across methods; ordinal-aware methods show marginally improved separation for Grade~1.}
 \label{fig:tsne}
 \end{figure}
+
+\textbf{Confusion Matrix Analysis.} Beyond F1 scores, inspecting the confusion matrices reveals the nuanced behavior of ordinal-aware methods. In standard Cross-Entropy, errors are widely distributed, and the model frequently misclassifies adjacent intermediate grades (e.g., predicting Grade~0 instead of Grade~1 or 2). This is a direct consequence of the model defaulting to the high-prior majority class when uncertain. In contrast, OWMixup severely restricts "far-off" errors (e.g., misclassifying Grade~0 as Grade~3 or 4) while simultaneously correcting the bias toward Grade~0. The errors under OWMixup are heavily concentrated strictly on adjacent classes, exactly mirroring human inter-rater variability. This demonstrates that OWMixup not only improves minority class accuracy but inherently regularizes the model to make "safer", clinically acceptable errors.
 
 \textbf{Clinical Relevance.} The improvements achieved by ordinal-aware methods on early-stage minority classes (Grade~1 KOA and DR~1) have profound clinical implications. In medical workflows, these early transitional stages are precisely when interventions are most effective in halting disease progression. Standard cross-entropy models systematically misclassify these cases into the healthy majority class (Grade~0), leading to missed diagnoses. By redistributing learning capacity through OWMixup, models become far more sensitive to early pathology without generating excessive false positives for advanced stages, thus better aligning AI behavior with preventive clinical objectives.
 
