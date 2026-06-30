@@ -26,3 +26,6 @@
 - **Top 6 × 2 seeds (EyePACS, Linux server)**: `cd src && python run_all.py --data_dir ../data_dr --dataset eyepacs --num_workers 4 --only v1_baseline v3_balanced_softmax v5_focal_loss v7_adjacent_balanced v11_owmixup_ce v12_owmixup_balanced_t20 --seeds 42 123`
 - **Generate Report**: `cd src && python generate_report.py --dataset koa`
 - **EyePACS Download**: `cd src && pip install datasets && python data/download_eyepacs.py`
+
+## Overleaf & LaTeX
+- **LaTeX Generation**: Always use skills in folder `skills/` to interact with Overleaf and generate LaTeX code.
