@@ -128,7 +128,7 @@ All images are resized to $224\times224$ with ImageNet normalization. Training a
 
 \subsection{Implementation Details}
 
-All models use a ResNet-50 pretrained on ImageNet, with the final classification head consisting of Dropout($p=0.5$) followed by a linear layer projecting the $2048$-d features to $5$ classes. We train for $30$ epochs with batch size $32$, AdamW optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). The learning rate is halved when validation loss plateaus (ReduceLROnPlateau, patience $3$, factor $0.5$). Gradients are clipped to a maximum norm of $1.0$. Early stopping with patience $7$ on validation macro F1 is applied. All runs use seed $42$ for reproducibility. Experiments are implemented in PyTorch and trained on a single NVIDIA RTX A4000 GPU ($16$ GB).
+All models use a ResNet-50~\cite{he2016deep} pretrained on ImageNet, with the final classification head consisting of Dropout($p=0.5$) followed by a linear layer projecting the $2048$-d features to $5$ classes. We train for $30$ epochs with batch size $32$, AdamW optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). The learning rate is halved when validation loss plateaus (ReduceLROnPlateau, patience $3$, factor $0.5$). Gradients are clipped to a maximum norm of $1.0$. Early stopping with patience $7$ on validation macro F1 is applied. All runs use seed $42$ for reproducibility. Experiments are implemented in PyTorch and trained on a single NVIDIA RTX A4000 GPU ($16$ GB).
 
 \subsection{Evaluation Metrics}
 
