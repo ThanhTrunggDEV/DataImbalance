@@ -31,6 +31,8 @@ Class imbalance and ordinal structure are two fundamental yet often independentl
 
 Medical image classification tasks such as Knee Osteoarthritis (OA) severity grading using the Kellgren-Lawrence (KL) system~\cite{kellgren1957radiological,tiulpin2018automatic} and Diabetic Retinopathy (DR) grading~\cite{gulshan2016development} share two fundamental challenges: they are \textit{ordinal}---grades follow a natural progression from healthy to severe---and \textit{imbalanced}---healthy cases vastly outnumber severe ones~\cite{buda2018systematic}. Standard cross-entropy training is particularly ill-suited for these tasks, as it tends to bias predictions toward majority grades while ignoring the ordinal structure that could guide generalization. While existing literature extensively covers class imbalance (e.g., Focal Loss~\cite{lin2017focal}, Balanced Softmax~\cite{ren2020balanced}) and ordinal regression (e.g., CORAL~\cite{niu2016coral}), these two challenges are rarely addressed jointly within data augmentation frameworks.
 
+The clinical motivation for solving these dual challenges is substantial. In the case of Knee OA, grading via the Kellgren-Lawrence system relies on assessing progressive structural degradation, such as joint space narrowing and osteophyte formation. Similarly, DR grading evaluates the progressive accumulation of vascular abnormalities like microaneurysms and exudates. In both domains, the vast majority of screened patients are healthy or present only mild symptoms, leading to severe dataset imbalance. However, missing an early-stage diagnosis (e.g., Doubtful OA or Mild NPDR) delays critical preventive interventions. Therefore, an ideal automated grading system must maintain high sensitivity for these rare, early-stage pathological classes without sacrificing overall accuracy. Achieving this balance requires explicitly modeling both the class frequencies and their ordinal relationships.
+
 In this paper, we propose \textit{Ordinal-Weighted Mixup} (OWMixup), which introduces a continuous temperature parameter $\tau$ that controls the strength of ordinal weighting via a Gaussian kernel over class distances. Our approach smoothly interpolates between class-preserving augmentation ($\tau \to 0$), soft ordinal-aware mixing (intermediate $\tau$), and vanilla mixup with frequency biasing ($\tau \to \infty$). We systematically compare six configurations---spanning loss-based methods, hard ordinal augmentation, and OWMixup---on the Knee OA and EyePACS DR datasets. Our contributions are:
 
 \begin{itemize}
@@ -88,6 +90,16 @@ This formulation has three properties:
   \item At intermediate $\tau$, the pairing probability decays smoothly with ordinal distance. This acts as a \textit{soft} generalization of Adjacent Mixup, which applies a hard threshold $|y_i - y_j| \leq 1$.
 \end{itemize}
 
+\subsection{Optimization Objective}
+
+During training, the OWMixup augmentation is seamlessly integrated with the classification loss. While standard cross-entropy can be used, our experiments show that combining OWMixup with a logit-adjusted loss further mitigates the long-tail effect. Specifically, when combined with Balanced Softmax~\cite{ren2020balanced}, the loss for a mixed sample $(\hat{\mathbf{x}}, \hat{y})$ is defined as:
+
+\begin{equation}
+\mathcal{L} = -\sum_{c=1}^C \hat{y}_c \log\left(\frac{e^{f_c(\hat{\mathbf{x}}) + \log(\pi_c)}}{\sum_{k=1}^C e^{f_k(\hat{\mathbf{x}}) + \log(\pi_k)}}\right),
+\end{equation}
+
+where $f_c(\hat{\mathbf{x}})$ is the logit output of the network for class $c$, and $\pi_c = n_c / \sum_k n_k$ is the prior frequency of class $c$ in the training set. This combination ensures that the model learns smoothed, ordinal-aware decision boundaries via OWMixup while explicitly compensating for the base rate of each class via the loss function.
+
 \section{Experiments}
 
 In this section we detail our experimental setup: considered datasets with relevant statistics, baseline techniques for comparison, evaluation metrics, and a discussion on the numerical differences in performance between methods.
@@ -133,6 +145,8 @@ All models use a ResNet-50~\cite{he2016deep} pretrained on ImageNet, with the fi
 \subsection{Evaluation Metrics}
 
 We evaluate with five complementary metrics. \textbf{Per-class F1} is our primary measure---on imbalanced ordinal data, macro-averaged scores can mask severe disparity in individual classes. \textbf{Macro F1} (unweighted mean of per-class F1) is the secondary aggregate metric. \textbf{Quadratic Weighted Kappa (QWK)}~\cite{cohen1960coefficient} captures ordinal consistency by penalizing predictions proportionally to their squared distance from the true grade. For an $N \times N$ confusion matrix $O$, QWK is defined as $\kappa = 1 - \frac{\sum_{i,j} w_{i,j} O_{i,j}}{\sum_{i,j} w_{i,j} E_{i,j}}$, where $w_{i,j} = \frac{(i-j)^2}{(N-1)^2}$ and $E$ is the expected matrix of chance agreement. This is crucial for clinical grading scales where confusing Grade 0 with 4 is a much more severe error than confusing Grade 0 with 1. \textbf{Accuracy} and \textbf{per-class AUC-ROC} are reported as supplementary measures for completeness.
+
+\textbf{Why Accuracy and AUC-ROC Fall Short:} In highly imbalanced ordinal tasks, standard Accuracy is overwhelmingly dominated by the majority class; a model predicting exclusively "Healthy" can still achieve over 70\% accuracy on our datasets. Similarly, Macro AUC-ROC evaluates the ranking quality of predicted probabilities but does not strictly measure calibration or the clinical utility of the hard decision boundaries. Therefore, while we report Accuracy and AUC-ROC for completeness, we assert that Per-class F1 and QWK are the most rigorous barometers of a model's clinical viability.
 
 \subsection{Results on Knee OA}
 
@@ -207,7 +221,7 @@ We ablate the key components of OWMixup: temperature sensitivity, visual feature
 \label{fig:koa_curves}
 \end{figure}
 
-\textbf{Visual analysis.} Fig.~\ref{fig:gradcam} compares Grad-CAM~\cite{selvaraju2017gradcam} attention maps across all methods on KOA. Ordinal-aware methods produce more localized attention on minority classes: Adjacent + BalSoft achieves the tightest focus on Grade~1 (attention score $-36.5$ vs baseline $-32.3$, where more negative indicates tighter heatmap concentration), corresponding directly to its $+13.1$ point F1 improvement. OWMixup variants show similarly focused attention on Grade~2 ($-36.1$) and Grade~4 ($-40.4$), matching their strong per-class performance. In contrast, Balanced Softmax alone produces the most diffuse attention (Grade~0: $-23.9$ vs baseline $-35.3$), suggesting that logit redistribution without ordinal-aware attention does not improve feature focus.
+\textbf{Visual analysis.} Fig.~\ref{fig:gradcam} compares Grad-CAM~\cite{selvaraju2017gradcam} attention maps across all methods on KOA. Ordinal-aware methods produce more localized attention on minority classes: Adjacent + BalSoft achieves the tightest focus on Grade~1 (attention score $-36.5$ vs baseline $-32.3$, where more negative indicates tighter heatmap concentration), corresponding directly to its $+13.1$ point F1 improvement. OWMixup variants show similarly focused attention on Grade~2 ($-36.1$) and Grade~4 ($-40.4$), matching their strong per-class performance. In contrast, Balanced Softmax alone produces the most diffuse attention (Grade~0: $-23.9$ vs baseline $-35.3$), suggesting that logit redistribution without ordinal-aware attention does not improve feature focus. For Knee OA, the tighter attention in OWMixup corresponds to clinically relevant regions, such as the medial joint space and specific osteophyte formations, whereas the baseline attention often diffuses into irrelevant background tissue.
 
 \begin{figure}[h!]
 \centering
