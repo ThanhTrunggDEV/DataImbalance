@@ -68,7 +68,9 @@ A natural ordinal baseline is to restrict pairing to neighboring grades:
 \label{eq:adjacent}
 \end{equation}
 
-ensuring that mixed samples only combine clinically adjacent classes. However, this hard threshold either enforces full ordinality or none at all, without a mechanism to control the strictness of ordinal enforcement.
+ensuring that mixed samples only combine clinically adjacent classes. This constraint is motivated by the inherent ambiguity of ordinal decision boundaries. In the KL system, the transition from Grade~0 (Healthy) to Grade~1 (Doubtful) represents a gradual radiographic change where even expert radiologists often disagree. By exposing the model to convex combinations of adjacent classes, Adjacent Mixup trains on precisely these ambiguous boundary regions. The model learns smooth, clinically plausible transitions rather than sharp but brittle decision surfaces, which is particularly beneficial for minority intermediate grades where training data is scarce.
+
+However, this hard threshold either enforces full ordinality or none at all, without a mechanism to control the strictness of ordinal enforcement.
 
 \subsection{Ordinal-Weighted Mixup (OWMixup)}
 
