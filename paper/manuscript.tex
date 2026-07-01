@@ -215,12 +215,12 @@ Table~\ref{tab:koa_perclass} traces the progressive improvement from baseline to
 \toprule
 Method & G0 & G1 & G2 & G3 & G4 & Macro F1 \\
 \midrule
-Baseline (CE)          & .783 & .282 & .608 & .795 & .854 & .664 \\
-Balanced Softmax       & \textbf{.786} & .354 & .609 & .774 & .885 & .682 \\
-Focal Loss             & .722 & \textbf{.413} & .524 & .796 & .849 & .661 \\
-Adjacent + BalSoft     & .755 & \textbf{.413} & .616 & \textbf{.823} & \textbf{.887} & \textbf{.699} \\
-OWMixup CE $\tau=2.0$  & .762 & .393 & .607 & .783 & .857 & .680 \\
-OWMixup + BalSoft $\tau=0.5$ & .771 & .382 & \textbf{.642} & .798 & .832 & .685 \\
+Baseline (CE)          & 0.783 & 0.282 & 0.608 & 0.795 & 0.854 & 0.664 \\
+Balanced Softmax       & \textbf{0.786} & 0.354 & 0.609 & 0.774 & 0.885 & 0.682 \\
+Focal Loss             & 0.722 & \textbf{0.413} & 0.524 & 0.796 & 0.849 & 0.661 \\
+Adjacent + BalSoft     & 0.755 & \textbf{0.413} & 0.616 & \textbf{0.823} & \textbf{0.887} & \textbf{0.699} \\
+OWMixup CE $\tau=2.0$  & 0.762 & 0.393 & 0.607 & 0.783 & 0.857 & 0.680 \\
+OWMixup + BalSoft $\tau=0.5$ & 0.771 & 0.382 & \textbf{0.642} & 0.798 & 0.832 & 0.685 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -247,12 +247,12 @@ The EyePACS dataset (24,576 training images) tests whether ordinal-aware methods
 \toprule
 Method & DR~0 & DR~1 & DR~2 & DR~3 & DR~4 & Macro F1 \\
 \midrule
-Baseline (CE)      & \textbf{.900} & .138 & \textbf{.591} & .492 & \textbf{.656} & \textbf{.555} \\
-Balanced Softmax   & .822 & \textbf{.202} & .570 & \textbf{.522} & .594 & .542 \\
-Focal Loss         & .721 & .139 & .466 & .453 & .641 & .484 \\
-Adjacent + BalSoft & .859 & .186 & .552 & .472 & .499 & .514 \\
-OWMixup CE $\tau=2.0$ & .832 & .177 & .492 & .465 & .549 & .503 \\
-OWMixup + BalSoft $\tau=0.5$ & .842 & .187 & .568 & .504 & .585 & .537 \\
+Baseline (CE)      & \textbf{0.900} & 0.138 & \textbf{0.591} & 0.492 & \textbf{0.656} & \textbf{0.555} \\
+Balanced Softmax   & 0.822 & \textbf{0.202} & 0.570 & \textbf{0.522} & 0.594 & 0.542 \\
+Focal Loss         & 0.721 & 0.139 & 0.466 & 0.453 & 0.641 & 0.484 \\
+Adjacent + BalSoft & 0.859 & 0.186 & 0.552 & 0.472 & 0.499 & 0.514 \\
+OWMixup CE $\tau=2.0$ & 0.832 & 0.177 & 0.492 & 0.465 & 0.549 & 0.503 \\
+OWMixup + BalSoft $\tau=0.5$ & 0.842 & 0.187 & 0.568 & 0.504 & 0.585 & 0.537 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -277,11 +277,11 @@ As shown in Table~\ref{tab:ablation_tau}, extreme values yield suboptimal result
 \toprule
 Temperature $\tau$ & G0 F1 & G1 F1 & G2 F1 & G3 F1 & G4 F1 & Macro F1 \\
 \midrule
-$\tau=0.1$ (Strict Intra-class) & .760 & .350 & .580 & .765 & .820 & .655 \\
-$\tau=0.5$ & .761 & .375 & .595 & .772 & .840 & .669 \\
-$\tau=1.0$ & \textbf{.765} & .385 & .600 & .780 & .845 & .675 \\
-$\tau=2.0$ (Optimal KOA) & .762 & \textbf{.393} & \textbf{.607} & \textbf{.783} & \textbf{.857} & \textbf{.680} \\
-$\tau \to \infty$ (Vanilla Mixup) & .758 & .360 & .590 & .770 & .835 & .663 \\
+$\tau=0.1$ (Strict Intra-class) & 0.760 & 0.350 & 0.580 & 0.765 & 0.820 & 0.655 \\
+$\tau=0.5$ & 0.761 & 0.375 & 0.595 & 0.772 & 0.840 & 0.669 \\
+$\tau=1.0$ & \textbf{0.765} & 0.385 & 0.600 & 0.780 & 0.845 & 0.675 \\
+$\tau=2.0$ (Optimal KOA) & 0.762 & \textbf{0.393} & \textbf{0.607} & \textbf{0.783} & \textbf{0.857} & \textbf{0.680} \\
+$\tau \to \infty$ (Vanilla Mixup) & 0.758 & 0.360 & 0.590 & 0.770 & 0.835 & 0.663 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -299,10 +299,10 @@ $\tau \to \infty$ (Vanilla Mixup) & .758 & .360 & .590 & .770 & .835 & .663 \\
 \toprule
 Loss Function & DR~0 & DR~1 & DR~2 & DR~3 & DR~4 & Macro F1 \\
 \midrule
-Cross-Entropy & .835 & .165 & .510 & .470 & .550 & .506 \\
-Focal Loss ($\gamma=2$) & .800 & .155 & .505 & .480 & .560 & .500 \\
-LDAM Loss & .825 & .170 & .540 & .490 & .570 & .519 \\
-Balanced Softmax & \textbf{.842} & \textbf{.187} & \textbf{.568} & \textbf{.504} & \textbf{.585} & \textbf{.537} \\
+Cross-Entropy & 0.835 & 0.165 & 0.510 & 0.470 & 0.550 & 0.506 \\
+Focal Loss ($\gamma=2$) & 0.800 & 0.155 & 0.505 & 0.480 & 0.560 & 0.500 \\
+LDAM Loss & 0.825 & 0.170 & 0.540 & 0.490 & 0.570 & 0.519 \\
+Balanced Softmax & \textbf{0.842} & \textbf{0.187} & \textbf{0.568} & \textbf{0.504} & \textbf{0.585} & \textbf{0.537} \\
 \bottomrule
 \end{tabular}
 \end{table}
