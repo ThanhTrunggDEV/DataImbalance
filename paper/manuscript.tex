@@ -216,8 +216,8 @@ Table~\ref{tab:koa_perclass} traces the progressive improvement from baseline to
 Method & G0 & G1 & G2 & G3 & G4 & Macro F1 \\
 \midrule
 Baseline (CE)          & .783 & .282 & .608 & .795 & .854 & .664 \\
-Balanced Softmax       & .786 & .354 & .609 & .774 & .885 & .682 \\
-Focal Loss             & .722 & .413 & .524 & .796 & .849 & .661 \\
+Balanced Softmax       & \textbf{.786} & .354 & .609 & .774 & .885 & .682 \\
+Focal Loss             & .722 & \textbf{.413} & .524 & .796 & .849 & .661 \\
 Adjacent + BalSoft     & .755 & \textbf{.413} & .616 & \textbf{.823} & \textbf{.887} & \textbf{.699} \\
 OWMixup CE $\tau=2.0$  & .762 & .393 & .607 & .783 & .857 & .680 \\
 OWMixup + BalSoft $\tau=0.5$ & .771 & .382 & \textbf{.642} & .798 & .832 & .685 \\
@@ -248,7 +248,7 @@ The EyePACS dataset (24,576 training images) tests whether ordinal-aware methods
 Method & DR~0 & DR~1 & DR~2 & DR~3 & DR~4 & Macro F1 \\
 \midrule
 Baseline (CE)      & \textbf{.900} & .138 & \textbf{.591} & .492 & \textbf{.656} & \textbf{.555} \\
-Balanced Softmax   & .822 & .202 & .570 & .522 & .594 & .542 \\
+Balanced Softmax   & .822 & \textbf{.202} & .570 & \textbf{.522} & .594 & .542 \\
 Focal Loss         & .721 & .139 & .466 & .453 & .641 & .484 \\
 Adjacent + BalSoft & .859 & .186 & .552 & .472 & .499 & .514 \\
 OWMixup CE $\tau=2.0$ & .832 & .177 & .492 & .465 & .549 & .503 \\
