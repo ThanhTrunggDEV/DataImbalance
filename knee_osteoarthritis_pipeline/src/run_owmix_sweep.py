@@ -47,7 +47,9 @@ def main():
 
     sweep_versions = [
         v for v in VERSIONS
-        if v["name"].startswith("v11_owmixup") or v["name"].startswith("v12_owmixup")
+        if v["name"].startswith("v11_owmixup")
+        or v["name"].startswith("v12_owmixup")
+        or v["name"].startswith("v13_owmixup")
     ]
     sweep_versions.sort(key=lambda v: v["name"])
 

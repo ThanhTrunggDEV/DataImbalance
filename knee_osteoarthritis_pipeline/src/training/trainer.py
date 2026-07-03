@@ -11,10 +11,14 @@ Enhanced Trainer with:
 
 import os
 import json
+from collections import defaultdict, deque
+
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
+from .loss import BalancedSoftmaxLoss
 from .metrics import calculate_metrics
 from .visualization import plot_training_history
 from evaluation.visualization import plot_confusion_matrix
@@ -148,9 +152,88 @@ def mixup_data_ordinal_weighted(x: torch.Tensor, y: torch.Tensor, alpha: float =
     return mixed_x, y, y[index], lam
 
 
+def mixup_data_ordinal_weighted_queue(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    alpha: float,
+    temperature: float,
+    class_queue: "defaultdict[int, deque]",
+    inv_freq: torch.Tensor,
+):
+    """
+    OWMix + cross-batch memory queue:
+    - Partner pool = current batch UNION a per-class CPU queue of recently seen
+      samples, so a batch with zero (or one) minority-class members can still
+      draw a minority partner from earlier batches.
+    - inv_freq is a precomputed DATASET-level inverse-sqrt class frequency
+      (not recomputed per-batch), so weighting is stable regardless of batch
+      composition.
+    - lam is per-sample (not a single scalar for the whole batch).
+    """
+    batch_size = x.size(0)
+    device = x.device
+
+    lam = torch.from_numpy(np.random.beta(alpha, alpha, size=batch_size)).float().to(device)
+
+    # Build partner pool: current batch + queued samples (queue lives on CPU).
+    pool_x_list = [x]
+    pool_y_list = [y]
+    for cls_queue in class_queue.values():
+        for qx, qy in cls_queue:
+            pool_x_list.append(qx.unsqueeze(0).to(device))
+            pool_y_list.append(qy.unsqueeze(0).to(device))
+    pool_x = torch.cat(pool_x_list, dim=0)
+    pool_y = torch.cat(pool_y_list, dim=0)
+    pool_size = pool_x.size(0)
+
+    # Gaussian ordinal-distance kernel x inverse-sqrt frequency weighting.
+    y_anchor = y.float().unsqueeze(1)          # [B, 1]
+    y_pool = pool_y.float().unsqueeze(0)       # [1, P]
+    dist = (y_anchor - y_pool).abs()
+    w = torch.exp(-dist ** 2 / temperature ** 2)
+    w = w * inv_freq[y].unsqueeze(1) * inv_freq[pool_y].unsqueeze(0)
+
+    # No self-mix: zero out the diagonal within the batch region of the pool.
+    self_idx = torch.arange(batch_size, device=device)
+    w[self_idx, self_idx] = 0.0
+
+    probs = w / w.sum(dim=1, keepdim=True).clamp_min(1e-8)
+    index = torch.multinomial(probs, num_samples=1).squeeze(1)
+
+    lam_view = lam.view(-1, 1, 1, 1)
+    mixed_x = lam_view * x + (1.0 - lam_view) * pool_x[index]
+    y_b = pool_y[index]
+
+    # Enqueue current batch (CPU, detached) for future batches to draw on.
+    x_cpu = x.detach().to("cpu")
+    y_cpu = y.detach().to("cpu")
+    for i in range(batch_size):
+        cls = int(y_cpu[i].item())
+        class_queue[cls].append((x_cpu[i], y_cpu[i]))
+
+    return mixed_x, y, y_b, lam
+
+
 def mixup_criterion(criterion, pred, y_a, y_b, lam):
     """Compute mixed loss: lam * L(y_a) + (1-lam) * L(y_b)."""
     return lam * criterion(pred, y_a) + (1.0 - lam) * criterion(pred, y_b)
+
+
+def mixup_criterion_queue(criterion, pred, y_a, y_b, lam):
+    """
+    Compute mixed loss for per-sample lam (a tensor, not a scalar).
+    Needs per-sample (unreduced) loss, which nn.CrossEntropyLoss() and
+    BalancedSoftmaxLoss don't expose by default, so it's recomputed here
+    rather than calling `criterion` directly.
+    """
+    if isinstance(criterion, BalancedSoftmaxLoss):
+        adjusted = pred + criterion.log_prior
+        loss_a = F.cross_entropy(adjusted, y_a, reduction="none")
+        loss_b = F.cross_entropy(adjusted, y_b, reduction="none")
+    else:
+        loss_a = F.cross_entropy(pred, y_a, reduction="none")
+        loss_b = F.cross_entropy(pred, y_b, reduction="none")
+    return (lam * loss_a + (1.0 - lam) * loss_b).mean()
 
 
 # -----------------------------------------------------------------------------
@@ -175,6 +258,8 @@ class Trainer:
         mixup_adjacent_gap: int = 1,
         mixup_rule_lam_max: float = 0.49,
         mixup_temperature: float = 1.0,
+        mixup_queue_size: int = 64,
+        dataset_class_counts=None,
     ):
         self.model = model
         self.train_loader = train_loader
@@ -191,6 +276,16 @@ class Trainer:
         self.mixup_adjacent_gap = mixup_adjacent_gap
         self.mixup_rule_lam_max = mixup_rule_lam_max
         self.mixup_temperature = mixup_temperature
+
+        # OWMix + memory queue (v13): per-class CPU queue of recent samples,
+        # used as extra mixing partners so minority classes remain reachable
+        # even when a mini-batch contains none of them.
+        self.minority_queue = defaultdict(lambda: deque(maxlen=mixup_queue_size))
+        if dataset_class_counts is not None:
+            counts = torch.as_tensor(dataset_class_counts, dtype=torch.float32)
+            self.inv_freq = (1.0 / (counts.sqrt() + 1e-8)).to(device)
+        else:
+            self.inv_freq = None
 
     # -- Single epoch helpers --------------------------------------------------
 
@@ -226,6 +321,14 @@ class Trainer:
                 )
                 outputs = self.model(mixed_x)
                 loss = mixup_criterion(self.criterion, outputs, y_a, y_b, lam)
+
+            elif self.use_mixup and self.mixup_mode == "ordinal_weighted_queue":
+                mixed_x, y_a, y_b, lam = mixup_data_ordinal_weighted_queue(
+                    images, labels, self.mixup_alpha, self.mixup_temperature,
+                    self.minority_queue, self.inv_freq,
+                )
+                outputs = self.model(mixed_x)
+                loss = mixup_criterion_queue(self.criterion, outputs, y_a, y_b, lam)
 
             elif self.use_mixup:
                 # Standard mixup (default)

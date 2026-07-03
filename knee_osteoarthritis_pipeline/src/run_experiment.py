@@ -79,16 +79,15 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
     dataset     = getattr(args, 'dataset', None) or ''
     if dataset:
         results_dir = os.path.join(results_dir, dataset)
-    save_dir    = os.path.join(results_dir, name)
 
-    # Priority: config entry > CLI flag > config default
+    version_dir = name
     mixup_temp = version_cfg.get("mixup_temperature")
     if mixup_temp is None:
         mixup_temp = getattr(args, 'mixup_temperature', None)
-        if mixup_temp is not None:
-            save_dir = os.path.join(results_dir, f"{name}_t{str(mixup_temp).replace('.', '')}")
     if mixup_temp is not None:
+        version_dir = f"{name}_t{str(mixup_temp).replace('.', '')}"
         cfg_mod.MIXUP_TEMPERATURE = mixup_temp
+    save_dir = os.path.join(results_dir, version_dir, f"seed_{seed}")
 
     set_seed(seed)
 
@@ -101,7 +100,7 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
     if dataset:
         print(f"  Dataset : {dataset}")
     print(f"  Loss    : {loss_type}   |  Mixup: {use_mixup} ({mixup_mode})  |  Sampler: {use_sampler}")
-    print(f"  Device  : {device}      |  Epochs: {epochs}   |  Seed: {SEED}")
+    print(f"  Device  : {device}      |  Epochs: {epochs}   |  Seed: {seed}")
     print(f"{'='*70}")
 
     # ── Data ─────────────────────────────────────────────────────────────────
@@ -168,6 +167,8 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
         mixup_adjacent_gap      = MIXUP_ADJACENT_GAP,
         mixup_rule_lam_max      = MIXUP_RULE_LAM_MAX,
         mixup_temperature       = cfg_mod.MIXUP_TEMPERATURE,
+        mixup_queue_size        = getattr(cfg_mod, "MIXUP_QUEUE_SIZE", 64),
+        dataset_class_counts    = class_counts,
     )
 
     _, best_metrics = trainer.fit(epochs=epochs, save_dir=save_dir)
@@ -383,6 +384,8 @@ def parse_args():
                         help="Full finetune epochs (v10 phase 3)")
     parser.add_argument("--dataset", type=str, default="",
                         help="Dataset subdirectory under results_dir (e.g. koa, eyepacs)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed (default: 42)")
     return parser.parse_args()
 
 
@@ -395,6 +398,6 @@ if __name__ == "__main__":
             print(f"[ERROR] Unknown version '{args.version}'. "
                   f"Available: {[v['name'] for v in VERSIONS]}")
             sys.exit(1)
-        run_version(cfg, args)
+        run_version(cfg, args, seed=args.seed)
     else:
         print("No --version specified. Use run_all.py to run all versions.")

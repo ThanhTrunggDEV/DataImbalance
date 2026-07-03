@@ -29,6 +29,7 @@ MIXUP_ALPHA = 0.4             # Beta distribution parameter
 MIXUP_ADJACENT_GAP = 1        # Max class gap for adjacent mixup
 MIXUP_RULE_LAM_MAX = 0.49     # Max mixing coeff for Grade 0 in rule-based mixup
 MIXUP_TEMPERATURE = 1.0       # OWMix temperature (Gaussian kernel width)
+MIXUP_QUEUE_SIZE = 64          # OWMix+Queue (v13): per-class CPU memory queue capacity
 
 # ─────────────────────────────────────────
 # Focal Loss
@@ -212,6 +213,79 @@ VERSIONS = [
         "display": "OWMixup + BalSoft τ=2.0",
         "use_mixup": True,
         "mixup_mode": "ordinal_weighted",
+        "loss_type": "balanced_softmax",
+        "use_sampler": False,
+        "mixup_temperature": 2.0,
+    },
+    # ── OWMix + Memory Queue (v13) ───────────────────────────────────────────
+    {   # τ = 1.0 (default)
+        "name": "v13_owmixup_queue_ce",
+        "display": "OWMixup+Queue (CE) τ=1.0",
+        "use_mixup": True,
+        "mixup_mode": "ordinal_weighted_queue",
+        "loss_type": "cross_entropy",
+        "use_sampler": True,
+        "mixup_temperature": 1.0,
+    },
+    {
+        "name": "v13_owmixup_queue_ce_t05",
+        "display": "OWMixup+Queue (CE) τ=0.5",
+        "use_mixup": True,
+        "mixup_mode": "ordinal_weighted_queue",
+        "loss_type": "cross_entropy",
+        "use_sampler": True,
+        "mixup_temperature": 0.5,
+    },
+    {
+        "name": "v13_owmixup_queue_ce_t15",
+        "display": "OWMixup+Queue (CE) τ=1.5",
+        "use_mixup": True,
+        "mixup_mode": "ordinal_weighted_queue",
+        "loss_type": "cross_entropy",
+        "use_sampler": True,
+        "mixup_temperature": 1.5,
+    },
+    {
+        "name": "v13_owmixup_queue_ce_t20",
+        "display": "OWMixup+Queue (CE) τ=2.0",
+        "use_mixup": True,
+        "mixup_mode": "ordinal_weighted_queue",
+        "loss_type": "cross_entropy",
+        "use_sampler": True,
+        "mixup_temperature": 2.0,
+    },
+    {
+        "name": "v13_owmixup_queue_balanced",
+        "display": "OWMixup+Queue + BalSoft τ=1.0",
+        "use_mixup": True,
+        "mixup_mode": "ordinal_weighted_queue",
+        "loss_type": "balanced_softmax",
+        "use_sampler": False,
+        "mixup_temperature": 1.0,
+    },
+    {
+        "name": "v13_owmixup_queue_balanced_t05",
+        "display": "OWMixup+Queue + BalSoft τ=0.5",
+        "use_mixup": True,
+        "mixup_mode": "ordinal_weighted_queue",
+        "loss_type": "balanced_softmax",
+        "use_sampler": False,
+        "mixup_temperature": 0.5,
+    },
+    {
+        "name": "v13_owmixup_queue_balanced_t15",
+        "display": "OWMixup+Queue + BalSoft τ=1.5",
+        "use_mixup": True,
+        "mixup_mode": "ordinal_weighted_queue",
+        "loss_type": "balanced_softmax",
+        "use_sampler": False,
+        "mixup_temperature": 1.5,
+    },
+    {
+        "name": "v13_owmixup_queue_balanced_t20",
+        "display": "OWMixup+Queue + BalSoft τ=2.0",
+        "use_mixup": True,
+        "mixup_mode": "ordinal_weighted_queue",
         "loss_type": "balanced_softmax",
         "use_sampler": False,
         "mixup_temperature": 2.0,
