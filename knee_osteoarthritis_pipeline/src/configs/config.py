@@ -291,3 +291,17 @@ VERSIONS = [
         "mixup_temperature": 2.0,
     },
 ]
+
+# Curated subset actually reported in paper/manuscript.tex's six-method
+# comparison (Baseline, Balanced Softmax, Focal, Adjacent+BalSoft, OWMixup CE
+# tau=2.0, OWMixup+BalSoft tau=0.5), plus the full v13 sweep. Use via
+# `run_all.py --paper` to avoid running all 18+ versions when only these
+# matter for the paper.
+PAPER_VERSION_NAMES = [
+    "v1_baseline",
+    "v3_balanced_softmax",
+    "v5_focal_loss",
+    "v7_adjacent_balanced",
+    "v11_owmixup_ce_t20",
+    "v12_owmixup_balanced_t05",
+] + [v["name"] for v in VERSIONS if v["name"].startswith("v13_owmixup_queue")]

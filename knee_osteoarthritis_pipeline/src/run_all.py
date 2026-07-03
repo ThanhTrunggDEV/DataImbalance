@@ -27,7 +27,7 @@ sys.path.insert(0, _SCRIPT_DIR)
 
 import numpy as np
 
-from configs.config import VERSIONS, DATA_DIR
+from configs.config import VERSIONS, DATA_DIR, PAPER_VERSION_NAMES
 from run_experiment import run_version, set_seed
 from evaluation.visualization import plot_all_versions_comparison, plot_per_class_f1_heatmap
 
@@ -35,6 +35,39 @@ from evaluation.visualization import plot_all_versions_comparison, plot_per_clas
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _resolve_path(results_dir, version_name, filename, seed=42):
+    """Try seed subdirectory first, then root (legacy)."""
+    path = os.path.join(results_dir, version_name, f"seed_{seed}", filename)
+    if os.path.exists(path):
+        return path
+    path = os.path.join(results_dir, version_name, filename)
+    return path if os.path.exists(path) else None
+
+
+def _discover_seed_metrics(results_dir, version_name, filename):
+    """Load `filename` from EVERY seed_* subdir found on disk for a version
+    (not just seed_42), falling back to the legacy flat layout if no seed
+    subdirs exist. Returns a list of parsed JSON dicts, one per seed found."""
+    version_dir = os.path.join(results_dir, version_name)
+    results = []
+    if os.path.isdir(version_dir):
+        seed_dirs = sorted(
+            d for d in os.listdir(version_dir)
+            if d.startswith("seed_") and os.path.isdir(os.path.join(version_dir, d))
+        )
+        for d in seed_dirs:
+            path = os.path.join(version_dir, d, filename)
+            if os.path.exists(path):
+                with open(path) as f:
+                    results.append(json.load(f))
+    if not results:
+        legacy_path = _resolve_path(results_dir, version_name, filename)
+        if legacy_path:
+            with open(legacy_path) as f:
+                results.append(json.load(f))
+    return results
+
 
 def save_summary_csv(all_results: list, results_dir: str) -> str:
     """Write a CSV table of best val metrics for all versions."""
@@ -112,6 +145,10 @@ def parse_args():
                         help="Version names to skip")
     parser.add_argument("--only",  nargs="*", default=[],
                         help="Run only these version names (overrides --skip)")
+    parser.add_argument("--paper", action="store_true",
+                        help="Run only PAPER_VERSION_NAMES from config.py "
+                             "(the versions reported in manuscript.tex + v13). "
+                             "Overridden by --only if both are given.")
     parser.add_argument("--supcon_epochs",   type=int, default=None,
                         help="SupCon pretrain epochs (default from config)")
     parser.add_argument("--probe_epochs",    type=int, default=None,
@@ -132,14 +169,18 @@ def parse_args():
 def main():
     args = parse_args()
 
-    if args.dataset:
-        args.results_dir = os.path.join(args.results_dir, args.dataset)
-        os.makedirs(args.results_dir, exist_ok=True)
+    # run_version() applies the dataset subdir itself; pre-appending here too
+    # would nest results twice (results/koa/koa/...). Keep args.results_dir as
+    # the base and compute the nested path locally for post-processing only.
+    results_dir = os.path.join(args.results_dir, args.dataset) if args.dataset else args.results_dir
+    os.makedirs(results_dir, exist_ok=True)
 
     # Determine which versions to run
     to_run = VERSIONS
     if args.only:
         to_run = [v for v in VERSIONS if v["name"] in args.only]
+    elif args.paper:
+        to_run = [v for v in VERSIONS if v["name"] in PAPER_VERSION_NAMES]
     elif args.skip:
         to_run = [v for v in VERSIONS if v["name"] not in args.skip]
 
@@ -148,7 +189,7 @@ def main():
     if args.dataset:
         print(f"  Dataset         : {args.dataset}")
     print(f"  Versions to run : {[v['name'] for v in to_run]}")
-    print(f"  Results dir     : {os.path.abspath(args.results_dir)}")
+    print(f"  Results dir     : {os.path.abspath(results_dir)}")
     print(f"{'#'*70}")
 
     seeds = args.seeds
@@ -199,7 +240,7 @@ def main():
     print("  All versions done. Generating comparison artefacts…")
     print(f"{'='*70}\n")
 
-    results_dir = args.results_dir
+    # results_dir (nested with dataset) was computed at the top of main()
 
     # Validation metric comparison (bar chart + curves) — reads all versions from disk
     plot_all_versions_comparison(results_dir=results_dir, version_configs=VERSIONS)
@@ -207,27 +248,26 @@ def main():
     # Per-class F1 heatmap (test set) — reads all versions from disk
     plot_per_class_f1_heatmap(results_dir=results_dir, version_configs=VERSIONS)
 
-    # Collect results from ALL versions on disk (old + new)
+    # Collect results from ALL versions on disk (old + new), averaged across
+    # every seed_* subdir found for that version (not just seed_42).
     all_version_results = []
     for vcfg in VERSIONS:
-        metrics_path = os.path.join(results_dir, vcfg["name"], "metrics.json")
-        if not os.path.exists(metrics_path):
+        seed_metrics = _discover_seed_metrics(results_dir, vcfg["name"], "metrics.json")
+        if not seed_metrics:
             continue
-        with open(metrics_path) as f:
-            data = json.load(f)
-        best = data.get("best", {})
+        bests = [data.get("best", {}) for data in seed_metrics]
         row = {
-            "version":              vcfg["name"],
-            "display":              vcfg["display"],
-            "epoch":                best.get("epoch", ""),
-            "val_f1_macro":         best.get("val_f1_macro", 0) or 0,
-            "val_accuracy":         best.get("val_accuracy", 0) or 0,
-            "val_precision_macro":  best.get("val_precision_macro", 0) or 0,
-            "val_recall_macro":     best.get("val_recall_macro", 0) or 0,
-            "val_auc_macro":        best.get("val_auc_macro", 0) or 0,
-            "val_loss":             best.get("val_loss", 0) or 0,
-            "elapsed_min":          0,
+            "version": vcfg["name"],
+            "display": vcfg["display"],
+            "epoch":   bests[0].get("epoch", ""),
+            "elapsed_min": 0,
+            "n_seeds": len(bests),
         }
+        for k in ("val_f1_macro", "val_accuracy", "val_precision_macro",
+                  "val_recall_macro", "val_auc_macro", "val_loss"):
+            vals = [b.get(k, 0) or 0 for b in bests]
+            row[k] = round(float(np.mean(vals)), 6)
+            row[f"{k}_std"] = round(float(np.std(vals)), 6)
         all_version_results.append(row)
 
     # Merge current-run elapsed times into the full results

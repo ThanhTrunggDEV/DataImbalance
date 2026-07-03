@@ -16,6 +16,40 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
+
+def _resolve_path(results_dir, version_name, filename, seed=42):
+    """Try seed subdirectory first, then root (legacy)."""
+    path = os.path.join(results_dir, version_name, f"seed_{seed}", filename)
+    if os.path.exists(path):
+        return path
+    path = os.path.join(results_dir, version_name, filename)
+    return path if os.path.exists(path) else None
+
+
+def _discover_seed_metrics(results_dir, version_name, filename):
+    """Load `filename` from EVERY seed_* subdir found on disk for a version
+    (not just seed_42), falling back to the legacy flat layout if no seed
+    subdirs exist. Returns a list of parsed JSON dicts, one per seed found."""
+    version_dir = os.path.join(results_dir, version_name)
+    results = []
+    if os.path.isdir(version_dir):
+        seed_dirs = sorted(
+            d for d in os.listdir(version_dir)
+            if d.startswith("seed_") and os.path.isdir(os.path.join(version_dir, d))
+        )
+        for d in seed_dirs:
+            path = os.path.join(version_dir, d, filename)
+            if os.path.exists(path):
+                with open(path) as f:
+                    results.append(json.load(f))
+    if not results:
+        legacy_path = _resolve_path(results_dir, version_name, filename)
+        if legacy_path:
+            with open(legacy_path) as f:
+                results.append(json.load(f))
+    return results
+
+
 # ── Style ─────────────────────────────────────────────────────────────────────
 plt.rcParams.update({
     "font.family": "DejaVu Sans",
@@ -85,19 +119,26 @@ def plot_all_versions_comparison(results_dir: str, version_configs: list):
     os.makedirs(comp_dir, exist_ok=True)
 
     # ── Load data ──────────────────────────────────────────────────────────────
+    # "best" is averaged across every seed_* run found on disk for the bar
+    # chart; "history" (per-epoch curves) uses the first seed found only,
+    # since epoch counts differ across seeds (early stopping) and can't be
+    # meaningfully averaged elementwise.
     version_data = []
     for vcfg in version_configs:
-        metrics_path = os.path.join(results_dir, vcfg["name"], "metrics.json")
-        if not os.path.exists(metrics_path):
+        seed_metrics = _discover_seed_metrics(results_dir, vcfg["name"], "metrics.json")
+        if not seed_metrics:
             print(f"  [WARN] Missing metrics.json for {vcfg['name']}, skipping.")
             continue
-        with open(metrics_path) as f:
-            data = json.load(f)
+        bests = [data["best"] for data in seed_metrics]
+        avg_best = {
+            k: float(np.mean([b.get(k, 0) or 0 for b in bests]))
+            for k in bests[0].keys()
+        }
         version_data.append({
             "name":    vcfg["name"],
             "display": vcfg["display"],
-            "best":    data["best"],
-            "history": data["history"],
+            "best":    avg_best,
+            "history": seed_metrics[0]["history"],
         })
 
     if not version_data:
@@ -195,23 +236,28 @@ def plot_per_class_f1_heatmap(results_dir: str, version_configs: list):
     class_names = None
 
     for vcfg in version_configs:
-        path = os.path.join(results_dir, vcfg["name"], "test_metrics.json")
-        if not os.path.exists(path):
+        seed_metrics = _discover_seed_metrics(results_dir, vcfg["name"], "test_metrics.json")
+        if not seed_metrics:
             continue
-        with open(path) as f:
-            data = json.load(f)
 
-        per_class_raw = data.get("per_class", {})
-        # Normalize keys: "Grade 0" → "0" (some old files use "Grade X" format)
-        per_class = {}
-        for k, v in per_class_raw.items():
-            norm = k.replace("Grade ", "")
-            per_class[norm] = v
+        # Normalize keys ("Grade 0" → "0") and average per-class F1 across
+        # every seed_* run found on disk.
+        per_class_by_seed = []
+        for data in seed_metrics:
+            per_class_raw = data.get("per_class", {})
+            per_class_by_seed.append({
+                k.replace("Grade ", ""): v for k, v in per_class_raw.items()
+            })
 
         if class_names is None:
-            class_names = sorted(per_class.keys(), key=int)
+            class_names = sorted(per_class_by_seed[0].keys(), key=int)
 
-        row = [per_class.get(cn, {}).get("f1", 0) for cn in class_names]
+        row = [
+            float(np.mean([
+                pc.get(cn, {}).get("f1", 0) for pc in per_class_by_seed
+            ]))
+            for cn in class_names
+        ]
         matrix_rows.append(row)
         row_labels.append(vcfg["display"])
 
