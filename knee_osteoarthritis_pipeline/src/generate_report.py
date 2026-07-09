@@ -30,6 +30,25 @@ from configs.config import (
 )
 
 CLASS_NAMES = [f"Grade {i}" for i in range(NUM_CLASSES)]
+
+DATASET_INFO = {
+    "koa": {
+        "title": "Knee OA",
+        "disease": "thoái hóa khớp gối",
+        "grade_label": "KL-grade",
+        "grade_range": "0–4",
+        "grades": ["Bình thường", "Nghi ngờ", "Nhẹ", "Trung bình", "Nặng"],
+        "eda_subdir": "",
+    },
+    "eyepacs": {
+        "title": "EyePACS",
+        "disease": "bệnh võng mạc tiểu đường",
+        "grade_label": "DR-grade",
+        "grade_range": "0–4",
+        "grades": ["Không DR", "Nhẹ", "Trung bình", "Nặng", "Tăng sinh"],
+        "eda_subdir": "eyepacs",
+    },
+}
 METRIC_LABELS = [
     ("f1_macro",        "F1 Macro"),
     ("accuracy",        "Accuracy"),
@@ -57,13 +76,52 @@ VERSION_METHOD = {
     "v12_owmixup_balanced_t05": "OWMix + BalSoft (τ=0.5)",
     "v12_owmixup_balanced_t15": "OWMix + BalSoft (τ=1.5)",
     "v12_owmixup_balanced_t20": "OWMix + BalSoft (τ=2.0)",
+    "v13_owmixup_queue_ce":           "OWMix+Queue (CE) τ=1.0",
+    "v13_owmixup_queue_ce_t05":       "OWMix+Queue (CE) τ=0.5",
+    "v13_owmixup_queue_ce_t15":       "OWMix+Queue (CE) τ=1.5",
+    "v13_owmixup_queue_ce_t20":       "OWMix+Queue (CE) τ=2.0",
+    "v13_owmixup_queue_balanced":     "OWMix+Queue + BalSoft (τ=1.0)",
+    "v13_owmixup_queue_balanced_t05": "OWMix+Queue + BalSoft (τ=0.5)",
+    "v13_owmixup_queue_balanced_t15": "OWMix+Queue + BalSoft (τ=1.5)",
+    "v13_owmixup_queue_balanced_t20": "OWMix+Queue + BalSoft (τ=2.0)",
+    "v14_owmixup_queue_v2_ce":        "OWMix+QueueV2 (CE) τ=1.0",
+    "v14_owmixup_queue_v2_ce_t20":    "OWMix+QueueV2 (CE) τ=2.0",
+    "v14_owmixup_queue_v2_balanced":  "OWMix+QueueV2 + BalSoft (τ=1.0)",
+    "v14_owmixup_queue_v2_balanced_t20": "OWMix+QueueV2 + BalSoft (τ=2.0)",
+    "v15_owmixup_queue_v3_ce":        "OWMix+QueueV3 (CE) τ=1.0",
+    "v15_owmixup_queue_v3_ce_t20":    "OWMix+QueueV3 (CE) τ=2.0",
+    "v15_owmixup_queue_v3_balanced":  "OWMix+QueueV3 + BalSoft (τ=1.0)",
+    "v15_owmixup_queue_v3_balanced_t20": "OWMix+QueueV3 + BalSoft (τ=2.0)",
+    "v16_owmixup_queue_v4_ce":        "OWMix+QueueV4 (CE) τ=1.0",
+    "v16_owmixup_queue_v4_ce_t20":    "OWMix+QueueV4 (CE) τ=2.0",
+    "v16_owmixup_queue_v4_balanced":  "OWMix+QueueV4 + BalSoft (τ=1.0)",
+    "v16_owmixup_queue_v4_balanced_t20": "OWMix+QueueV4 + BalSoft (τ=2.0)",
+    # Directories with _t10 or _t20_t20 suffix (from runs with different naming)
+    "v13_owmixup_queue_balanced_t10": "OWMix+Queue + BalSoft (τ=1.0) [t10]",
+    "v14_owmixup_queue_v2_ce_t10":    "OWMix+QueueV2 (CE) τ=1.0 [t10]",
+    "v14_owmixup_queue_v2_ce_t20_t20":"OWMix+QueueV2 (CE) τ=2.0 [t20_t20]",
+    "v14_owmixup_queue_v2_balanced_t10": "OWMix+QueueV2 + BalSoft (τ=1.0) [t10]",
+    "v14_owmixup_queue_v2_balanced_t20_t20": "OWMix+QueueV2 + BalSoft (τ=2.0) [t20_t20]",
+    "v15_owmixup_queue_v3_ce_t10":    "OWMix+QueueV3 (CE) τ=1.0 [t10]",
+    "v15_owmixup_queue_v3_ce_t20_t20":"OWMix+QueueV3 (CE) τ=2.0 [t20_t20]",
+    "v15_owmixup_queue_v3_balanced_t10": "OWMix+QueueV3 + BalSoft (τ=1.0) [t10]",
 }
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+def _resolve_path(results_dir, version_name, filename, seed=42):
+    """Try seed subdirectory first (seed, then seed_123), then root (legacy)."""
+    for s in [seed, 123]:
+        path = os.path.join(results_dir, version_name, f"seed_{s}", filename)
+        if os.path.exists(path):
+            return path
+    path = os.path.join(results_dir, version_name, filename)
+    return path if os.path.exists(path) else None
+
+
 def load_test_metrics(results_dir, version_name):
-    path = os.path.join(results_dir, version_name, "test_metrics.json")
-    if os.path.exists(path):
+    path = _resolve_path(results_dir, version_name, "test_metrics.json")
+    if path:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         # Normalize per_class keys: handle both "Grade 0" and "0" formats
@@ -78,16 +136,16 @@ def load_test_metrics(results_dir, version_name):
 
 
 def load_metrics_history(results_dir, version_name):
-    path = os.path.join(results_dir, version_name, "metrics.json")
-    if os.path.exists(path):
+    path = _resolve_path(results_dir, version_name, "metrics.json")
+    if path:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
     return None
 
 
 def load_classification_report(results_dir, version_name):
-    path = os.path.join(results_dir, version_name, "test_classification_report.txt")
-    if os.path.exists(path):
+    path = _resolve_path(results_dir, version_name, "test_classification_report.txt")
+    if path:
         with open(path, encoding="utf-8") as f:
             return f.read()
     return None
@@ -162,11 +220,10 @@ def copy_assets(output_dir, results_dir, outputs_dir):
     version_images = {}
     for vcfg in VERSIONS:
         vn = vcfg["name"]
-        ver_dir = os.path.join(results_dir, vn)
         version_images[vn] = {}
         for iname in ["training_history.png", "test_confusion_matrix.png"]:
-            src = os.path.join(ver_dir, iname)
-            if os.path.exists(src):
+            src = _resolve_path(results_dir, vn, iname)
+            if src:
                 dst = os.path.join(assets, f"{vn}_{iname}")
                 shutil.copy2(src, dst)
                 version_images[vn][iname] = os.path.relpath(dst, output_dir)
@@ -285,8 +342,9 @@ def build_toc():
     return html
 
 
-def build_executive_summary(versions, summary_rows, results_dir):
+def build_executive_summary(versions, summary_rows, results_dir, dataset=""):
     """Executive summary with key findings (using TEST metrics for ranking)."""
+    dinfo = DATASET_INFO.get(dataset, DATASET_INFO["koa"])
 
     # Load test metrics for all versions that have them
     test_rows = []
@@ -330,7 +388,7 @@ def build_executive_summary(versions, summary_rows, results_dir):
     html = f"""<div class="exec-summary">
 <h2 id="exec">1. Tổng quan kết quả</h2>
 <p>Báo cáo tuần — so sánh {len(sorted_versions)} phương pháp xử lý mất cân bằng lớp
-trên bài toán phân loại độ nặng thoái hóa khớp gối (KL-grade 0–4).</p>
+trên bài toán phân loại độ nặng {dinfo['disease']} ({dinfo['grade_label']} {dinfo['grade_range']}).</p>
 
 <div class="stat-grid">
 <div class="stat-item"><div class="stat-value">{best_f1:.4f}</div><div class="stat-label">F1 Macro (best, test)</div></div>
@@ -374,8 +432,11 @@ trên bài toán phân loại độ nặng thoái hóa khớp gối (KL-grade 0�
     return html
 
 
-def build_dataset_section(outputs_dir):
+def build_dataset_section(outputs_dir, dataset=""):
     """Class distribution table + EDA plots."""
+    dinfo = DATASET_INFO.get(dataset, DATASET_INFO["koa"])
+    grade_desc = ", ".join(f"{i}: {dinfo['grades'][i]}" for i in range(NUM_CLASSES))
+
     eda_rows = load_eda_summary(outputs_dir)
     if not eda_rows:
         return "<h2 id='dataset'>2. Thông tin dữ liệu</h2><p>Chưa có dữ liệu EDA.</p>"
@@ -384,7 +445,7 @@ def build_dataset_section(outputs_dir):
     classes = sorted(set(r["class"] for r in eda_rows if r["split"] in splits))
 
     html = '<h2 id="dataset">2. Thông tin dữ liệu</h2>'
-    html += '<p class="section-desc">Phân phối dữ liệu Knee Osteoarthritis — 5 lớp KL-grade (0: Bình thường, 4: Nặng nhất).</p>'
+    html += f'<p class="section-desc">Phân phối dữ liệu {dinfo["title"]} — 5 lớp {dinfo["grade_label"]} ({grade_desc}).</p>'
 
     # Build matrix: first compute totals per split, then percentages
     html += '<div class="card"><table>'
@@ -533,8 +594,9 @@ def build_figures_section(comp_map):
     return html
 
 
-def build_per_class_analysis(results_dir):
+def build_per_class_analysis(results_dir, dataset=""):
     """Per-class F1 analysis table."""
+    dinfo = DATASET_INFO.get(dataset, DATASET_INFO["koa"])
     html = '<h2 id="perclass">6. Phân tích từng lớp</h2>'
     html += '<p class="section-desc">F1-score cho từng lớp (Grade 0–4) trên test set — so sánh giữa các phương pháp.</p>'
     html += '<div class="card">'
@@ -591,7 +653,7 @@ def build_per_class_analysis(results_dir):
 
     html += '<div class="insight-box">'
     html += f"<strong>⚠ Lớp Grade {worst}</strong> — F1 trung bình thấp nhất ({avg_f1s[worst]:.3f}). "
-    html += f"Đây là lớp {['Bình thường', 'Nghi ngờ', 'Nhẹ', 'Trung bình', 'Nặng'][worst]} "
+    html += f"Đây là lớp {dinfo['grades'][worst]} "
     html += f"với rất ít mẫu huấn luyện. "
     html += f"Lớp Grade {best_class} có F1 cao nhất ({avg_f1s[best_class]:.3f}) do có nhiều mẫu nhất."
     html += "</div>"
@@ -631,8 +693,8 @@ def build_version_detail(results_dir, comp_map):
 
         # Training history
         history_img = None
-        history_path = os.path.join(results_dir, vn, "training_history.png")
-        if os.path.exists(history_path):
+        history_path = _resolve_path(results_dir, vn, "training_history.png")
+        if history_path:
             b64 = img_to_base64(history_path)
             if b64:
                 html += f'<div class="img-wrap"><img src="{b64}" alt="{vn} training history" /><div class="figure-caption">Training history</div></div>'
@@ -643,8 +705,8 @@ def build_version_detail(results_dir, comp_map):
 
         # Confusion matrix
         cm_img = None
-        cm_path = os.path.join(results_dir, vn, "test_confusion_matrix.png")
-        if os.path.exists(cm_path):
+        cm_path = _resolve_path(results_dir, vn, "test_confusion_matrix.png")
+        if cm_path:
             b64 = img_to_base64(cm_path)
             if b64:
                 html += f'<div class="img-wrap"><img src="{b64}" alt="{vn} confusion matrix" /><div class="figure-caption">Test confusion matrix</div></div>'
@@ -666,8 +728,9 @@ def build_version_detail(results_dir, comp_map):
     return html
 
 
-def build_insights(results_dir, summary_rows, outputs_dir):
+def build_insights(results_dir, summary_rows, outputs_dir, dataset=""):
     """Generate insights and recommendations (using TEST metrics for ranking)."""
+    dinfo = DATASET_INFO.get(dataset, DATASET_INFO["koa"])
 
     # Load test metrics
     test_rows = {}
@@ -731,7 +794,7 @@ def build_insights(results_dir, summary_rows, outputs_dir):
     reco = [
         "Thử nghiệm <strong>weighted sampling</strong> kết hợp với Focal Loss để cải thiện Grade 1 (lớp nghi ngờ — dễ nhầm với Grade 0 và 2).",
         "Áp dụng <strong>class-aware augmentation</strong> (ví dụ: oversampling cho Grade 1 và 4 kết hợp với augmentation mạnh hơn).",
-        "Thử nghiệm <strong>Ordinal regression</strong> (CORN, CORAL) — tận dụng tính chất có thứ tự của KL-grade.",
+        f"Thử nghiệm <strong>Ordinal regression</strong> (CORN, CORAL) — tận dụng tính chất có thứ tự của {dinfo['grade_label']}.",
         "Cân nhắc dùng <strong>EfficientNet-B5</strong> (đã có trong codebase) làm backbone stronger.",
         "Thử nghiệm <strong>ensemble</strong> top-3 phương pháp (ví dụ: voting giữa baseline, focal loss và supcon).",
         "Phân tích <strong>error case</strong> trên Grade 1 misclassified samples để hiểu rõ nguyên nhân.",
@@ -807,8 +870,9 @@ def generate_report(results_dir, outputs_dir, output_path, dataset=""):
     comp_map, eda_map, version_images = copy_assets(output_dir, results_dir, outputs_dir)
     print(f"         Assets:  {len(comp_map)} comparison + {len(eda_map)} EDA images")
 
-    dataset_title = dataset.upper() if dataset else "Knee OA"
-    dataset_label = f" — {dataset_title.upper()}" if dataset else ""
+    dinfo = DATASET_INFO.get(dataset, DATASET_INFO["koa"])
+    dataset_label = f" — {dinfo['title'].upper()}" if dataset else ""
+    dataset_label_display = f" — {dinfo['title']}" if dataset else ""
 
     # Build HTML
     html_parts = [
@@ -819,20 +883,20 @@ def generate_report(results_dir, outputs_dir, output_path, dataset=""):
         "</head><body>",
 
         # Header
-        f"<h1>📋 Báo cáo thực nghiệm{dataset_label}</h1>",
+        f"<h1>📋 Báo cáo thực nghiệm{dataset_label_display}</h1>",
         f"<p class='meta'>Ngày: {datetime.now().strftime('%d/%m/%Y %H:%M')} &nbsp;|&nbsp; "
         f"Số phiên bản: {len(summary_rows)} &nbsp;|&nbsp; "
         f"Pipeline: Multi-version imbalance strategies</p>",
 
         build_toc(),
-        build_executive_summary(VERSIONS, summary_rows, results_dir),
-        build_dataset_section(outputs_dir),
+        build_executive_summary(VERSIONS, summary_rows, results_dir, dataset),
+        build_dataset_section(outputs_dir, dataset),
         build_config_section(),
         build_comparison_table(summary_rows),
         build_figures_section(comp_map),
-        build_per_class_analysis(results_dir),
+        build_per_class_analysis(results_dir, dataset),
         build_version_detail(results_dir, comp_map),
-        build_insights(results_dir, summary_rows, outputs_dir),
+        build_insights(results_dir, summary_rows, outputs_dir, dataset),
         build_appendix(results_dir),
 
         "<hr style='margin:40px 0; border:none; border-top:1px solid #dfe6e9;' />",
@@ -857,12 +921,12 @@ def main():
     parser = argparse.ArgumentParser(description="Generate weekly HTML report from pipeline results.")
     parser.add_argument("--results-dir", default=os.path.join(_SCRIPT_DIR, "../results"),
                         help="Path to results directory (default: ../results)")
-    parser.add_argument("--outputs-dir", default=os.path.join(_SCRIPT_DIR, "../outputs"),
-                        help="Path to outputs directory (default: ../outputs)")
+    parser.add_argument("--outputs-dir", default=None,
+                        help="Path to outputs directory (default: ../outputs/<dataset> or ../outputs)")
     parser.add_argument("--outputdir", default=os.path.join(_SCRIPT_DIR, ".."),
                         help="Directory to save the report (default: project root)")
-    parser.add_argument("--output", default="weekly_report.html",
-                        help="Output filename (default: weekly_report.html)")
+    parser.add_argument("--output", default=None,
+                        help="Output filename (default: weekly_report_<dataset>.html or weekly_report.html)")
     parser.add_argument("--dataset", type=str, default="",
                         help="Dataset subdirectory under results_dir (e.g. koa, eyepacs)")
     args = parser.parse_args()
@@ -870,12 +934,28 @@ def main():
     results_dir = args.results_dir
     if args.dataset:
         results_dir = os.path.join(results_dir, args.dataset)
+
+    # Auto-resolve outputs_dir based on dataset
+    outputs_dir = args.outputs_dir
+    if outputs_dir is None:
+        outputs_dir = os.path.join(_SCRIPT_DIR, "../outputs")
+        if args.dataset:
+            ds_info = DATASET_INFO.get(args.dataset, {})
+            eda_sub = ds_info.get("eda_subdir", "")
+            if eda_sub:
+                outputs_dir = os.path.join(outputs_dir, eda_sub)
+
+    # Auto-name output based on dataset
+    output_name = args.output
+    if output_name is None:
+        output_name = f"weekly_report_{args.dataset}.html" if args.dataset else "weekly_report.html"
+
     if not os.path.isdir(results_dir):
         print(f"[ERROR] Results directory not found: {results_dir}")
         sys.exit(1)
 
-    output_path = os.path.join(args.outputdir, args.output)
-    generate_report(results_dir, args.outputs_dir, output_path, dataset=args.dataset)
+    output_path = os.path.join(args.outputdir, output_name)
+    generate_report(results_dir, outputs_dir, output_path, dataset=args.dataset)
 
 
 if __name__ == "__main__":
