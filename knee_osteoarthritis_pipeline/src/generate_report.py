@@ -9,7 +9,6 @@ Usage:
 """
 
 import argparse
-import base64
 import csv
 import io
 import json
@@ -173,24 +172,14 @@ def load_eda_summary(outputs_dir):
     return rows
 
 
-def img_to_base64(path):
-    if not os.path.exists(path):
-        return None
-    with open(path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("utf-8")
-    ext = Path(path).suffix.lower().lstrip(".")
-    if ext == "png":
-        mime = "image/png"
-    elif ext in ("jpg", "jpeg"):
-        mime = "image/jpeg"
-    else:
-        mime = "image/png"
-    return f"data:{mime};base64,{b64}"
+def copy_assets(output_dir, results_dir, outputs_dir, dataset=""):
+    """Copy images to output directory and return relative paths.
 
-
-def copy_assets(output_dir, results_dir, outputs_dir):
-    """Copy images to output directory and return relative paths."""
-    assets = os.path.join(output_dir, "report_assets")
+    Assets are nested under report_assets/{dataset}/ so reports for
+    different datasets don't overwrite each other's images.
+    """
+    assets = os.path.join(output_dir, "report_assets", dataset) if dataset \
+        else os.path.join(output_dir, "report_assets")
     plots_dir = os.path.join(assets, "plots")
     comp_dir = os.path.join(assets, "comparison")
     os.makedirs(plots_dir, exist_ok=True)
@@ -203,7 +192,7 @@ def copy_assets(output_dir, results_dir, outputs_dir):
         if os.path.exists(src):
             dst = os.path.join(comp_dir, fname)
             shutil.copy2(src, dst)
-            comp_map[fname] = os.path.relpath(dst, output_dir)
+            comp_map[fname] = os.path.relpath(dst, output_dir).replace(os.sep, "/")
 
     # EDA plots
     eda_src = os.path.join(outputs_dir, "eda", "plots")
@@ -214,9 +203,9 @@ def copy_assets(output_dir, results_dir, outputs_dir):
                 src = os.path.join(eda_src, fname)
                 dst = os.path.join(plots_dir, fname)
                 shutil.copy2(src, dst)
-                eda_map[fname] = os.path.relpath(dst, output_dir)
+                eda_map[fname] = os.path.relpath(dst, output_dir).replace(os.sep, "/")
 
-    # Per-version images: embed as base64 in a dict for the HTML generator
+    # Per-version images: copied to assets, referenced by relative path in the HTML
     version_images = {}
     for vcfg in VERSIONS:
         vn = vcfg["name"]
@@ -226,7 +215,7 @@ def copy_assets(output_dir, results_dir, outputs_dir):
             if src:
                 dst = os.path.join(assets, f"{vn}_{iname}")
                 shutil.copy2(src, dst)
-                version_images[vn][iname] = os.path.relpath(dst, output_dir)
+                version_images[vn][iname] = os.path.relpath(dst, output_dir).replace(os.sep, "/")
 
     return comp_map, eda_map, version_images
 
@@ -497,8 +486,19 @@ def build_dataset_section(outputs_dir, dataset=""):
     return html
 
 
-def build_config_section():
-    """Hyperparameters table."""
+def build_config_section(results_dir=None):
+    """Hyperparameters table.
+
+    When results_dir is given, the per-version config table only lists versions
+    that actually have result directories, so planned-but-unrun entries (e.g.
+    v16/v17 in VERSIONS) don't appear as empty rows in a results report.
+    """
+    available = None
+    if results_dir and os.path.isdir(results_dir):
+        available = {
+            d for d in os.listdir(results_dir)
+            if os.path.isdir(os.path.join(results_dir, d)) and d != "comparison"
+        }
     html = '<h2 id="config">3. Cấu hình thực nghiệm</h2>'
     html += '<div class="card">'
     html += '<p class="section-desc">Các tham số chung cho tất cả phiên bản (trừ SupCon có số epoch riêng).</p>'
@@ -532,6 +532,8 @@ def build_config_section():
     html += "<tr><th>Phiên bản</th><th>Kỹ thuật</th><th>Loss function</th><th>Sampler</th></tr>"
     for vcfg in VERSIONS:
         vn = vcfg["name"]
+        if available is not None and vn not in available:
+            continue
         loss_map = {
             "cross_entropy": "CrossEntropy",
             "balanced_softmax": "BalancedSoftmax",
@@ -588,7 +590,7 @@ def build_figures_section(comp_map):
     for fname, caption in fig_mapping:
         img_path = comp_map.get(fname)
         if img_path:
-            html += f'<div class="card img-wrap"><img src="{img_path}" alt="{caption}" />'
+            html += f'<div class="card img-wrap"><img src="{img_path}" alt="{caption}" loading="lazy" />'
             html += f'<div class="figure-caption">{caption}</div></div>'
 
     return html
@@ -661,7 +663,7 @@ def build_per_class_analysis(results_dir, dataset=""):
     return html
 
 
-def build_version_detail(results_dir, comp_map):
+def build_version_detail(results_dir, comp_map, version_images):
     """Detailed section for each version."""
     html = '<h2 id="versions">7. Chi tiết từng phiên bản</h2>'
     html += '<p class="section-desc">Training history, confusion matrix và classification report cho mỗi phương pháp.</p>'
@@ -692,26 +694,17 @@ def build_version_detail(results_dir, comp_map):
         html += '<div class="grid-2">'
 
         # Training history
-        history_img = None
-        history_path = _resolve_path(results_dir, vn, "training_history.png")
-        if history_path:
-            b64 = img_to_base64(history_path)
-            if b64:
-                html += f'<div class="img-wrap"><img src="{b64}" alt="{vn} training history" /><div class="figure-caption">Training history</div></div>'
-            else:
-                html += "<div></div>"
+        vimgs = version_images.get(vn, {})
+        history_src = vimgs.get("training_history.png")
+        if history_src:
+            html += f'<div class="img-wrap"><img src="{history_src}" alt="{vn} training history" loading="lazy" /><div class="figure-caption">Training history</div></div>'
         else:
             html += "<div></div>"
 
         # Confusion matrix
-        cm_img = None
-        cm_path = _resolve_path(results_dir, vn, "test_confusion_matrix.png")
-        if cm_path:
-            b64 = img_to_base64(cm_path)
-            if b64:
-                html += f'<div class="img-wrap"><img src="{b64}" alt="{vn} confusion matrix" /><div class="figure-caption">Test confusion matrix</div></div>'
-            else:
-                html += "<div></div>"
+        cm_src = vimgs.get("test_confusion_matrix.png")
+        if cm_src:
+            html += f'<div class="img-wrap"><img src="{cm_src}" alt="{vn} confusion matrix" loading="lazy" /><div class="figure-caption">Test confusion matrix</div></div>'
         else:
             html += "<div></div>"
 
@@ -867,7 +860,7 @@ def generate_report(results_dir, outputs_dir, output_path, dataset=""):
     print(f"         Summary: {len(summary_rows)} versions")
 
     # Copy assets
-    comp_map, eda_map, version_images = copy_assets(output_dir, results_dir, outputs_dir)
+    comp_map, eda_map, version_images = copy_assets(output_dir, results_dir, outputs_dir, dataset=dataset)
     print(f"         Assets:  {len(comp_map)} comparison + {len(eda_map)} EDA images")
 
     dinfo = DATASET_INFO.get(dataset, DATASET_INFO["koa"])
@@ -891,11 +884,11 @@ def generate_report(results_dir, outputs_dir, output_path, dataset=""):
         build_toc(),
         build_executive_summary(VERSIONS, summary_rows, results_dir, dataset),
         build_dataset_section(outputs_dir, dataset),
-        build_config_section(),
+        build_config_section(results_dir),
         build_comparison_table(summary_rows),
         build_figures_section(comp_map),
         build_per_class_analysis(results_dir, dataset),
-        build_version_detail(results_dir, comp_map),
+        build_version_detail(results_dir, comp_map, version_images),
         build_insights(results_dir, summary_rows, outputs_dir, dataset),
         build_appendix(results_dir),
 

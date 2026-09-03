@@ -161,6 +161,22 @@ def parse_args():
                         help="CUDA device ID (overrides config.CUDA_DEVICE_ID)")
     parser.add_argument("--mixup_temperature", type=float, default=None,
                         help="OWMix temperature tau (overrides config.MIXUP_TEMPERATURE)")
+    parser.add_argument("--prior_gamma", type=float, default=None,
+                        help="v19: tempered balanced-softmax factor gamma in [0,1] "
+                             "(overrides per-version config for ALL selected versions; "
+                             "leave unset to use each version's baked gamma)")
+    # Retuned-regime overrides (Plan B), forwarded to run_version via args
+    parser.add_argument("--lr", type=float, default=None,
+                        help="Learning rate (overrides config.LR)")
+    parser.add_argument("--patience", type=int, default=None,
+                        help="Early-stopping patience (overrides config.EARLY_STOPPING_PATIENCE)")
+    parser.add_argument("--mixup_alpha", type=float, default=None,
+                        help="Mixup Beta alpha (overrides config.MIXUP_ALPHA)")
+    parser.add_argument("--scheduler", type=str, default="plateau",
+                        choices=["plateau", "cosine"],
+                        help="LR schedule: 'plateau' (default) or 'cosine' (warmup+cosine)")
+    parser.add_argument("--warmup_epochs", type=int, default=3,
+                        help="Warmup epochs for --scheduler cosine (default: 3)")
     parser.add_argument("--dataset", type=str, default="",
                         help="Dataset subdirectory under results_dir (e.g. koa, eyepacs)")
     return parser.parse_args()

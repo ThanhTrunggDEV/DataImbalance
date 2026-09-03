@@ -72,13 +72,21 @@ class BalancedSoftmaxLoss(nn.Module):
 
     Args:
         class_counts: 1-D array/tensor of per-class sample counts (train set).
+        gamma:        Tempering factor in [0, 1] on the log-prior (v19). gamma=1
+                      is the original full Balanced Softmax; gamma=0 recovers
+                      plain cross-entropy (no correction); values in between give
+                      a partial correction. Because `log_prior` is stored already
+                      scaled by gamma, every consumer that reads
+                      `criterion.log_prior` (the OWMM/queue mixup criteria) is
+                      tempered by the same factor automatically.
     """
 
-    def __init__(self, class_counts):
+    def __init__(self, class_counts, gamma: float = 1.0):
         super().__init__()
+        self.gamma = gamma
         # Register as buffer so it moves with .to(device) automatically
         counts = torch.tensor(class_counts, dtype=torch.float32)
-        self.register_buffer("log_prior", torch.log(counts + 1e-8))
+        self.register_buffer("log_prior", gamma * torch.log(counts + 1e-8))
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         # Shift logits by log class frequency (log_prior is a registered buffer,
@@ -144,6 +152,7 @@ def build_loss(
     device: torch.device,
     focal_gamma: float = 2.0,
     supcon_temperature: float = 0.1,
+    prior_gamma: float = 1.0,
 ) -> nn.Module:
     """
     Factory function — build the correct loss based on version config.
@@ -170,7 +179,7 @@ def build_loss(
         return FocalLoss(alpha=weights_tensor, gamma=focal_gamma)
 
     elif loss_type == "balanced_softmax":
-        return BalancedSoftmaxLoss(class_counts=class_counts).to(device)
+        return BalancedSoftmaxLoss(class_counts=class_counts, gamma=prior_gamma).to(device)
 
     elif loss_type == "supcon":
         return SupConLoss(temperature=supcon_temperature)

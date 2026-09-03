@@ -1,0 +1,67 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="owmm-pipeline" name="OWMM Pipeline">
+    <mxGraphModel dx="2105" dy="1160" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2000" pageHeight="780" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="batch" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=18;fillColor=#dbe7f3;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" value="&lt;b&gt;Mini-batch&lt;/b&gt;&lt;br&gt;(X, y)&lt;br&gt;imbalanced" vertex="1">
+          <mxGeometry height="160" width="210" x="40" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="backbone" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=18;fillColor=#dbe7f3;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" value="Backbone&lt;br&gt;f&lt;sub&gt;θ&lt;/sub&gt; → layer3&lt;br&gt;→ h&lt;sub&gt;i&lt;/sub&gt;, h&lt;sub&gt;j&lt;/sub&gt;" vertex="1">
+          <mxGeometry height="160" width="250" x="295" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="mix" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=18;fillColor=#f6d9b8;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" value="&lt;b&gt;Manifold mix&lt;/b&gt;&lt;br&gt;h = λ·h&lt;sub&gt;i&lt;/sub&gt; + (1−λ)·h&lt;sub&gt;j&lt;/sub&gt;&lt;br&gt;λ ~ Beta(α, α)" vertex="1">
+          <mxGeometry height="160" width="420" x="590" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="head" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=18;fillColor=#dbe7f3;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" value="&lt;font&gt;layer4 + head&lt;br&gt;→ logits z&lt;/font&gt;" vertex="1">
+          <mxGeometry height="160" width="280" x="1055" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="prior" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=18;fillColor=#f6d9b8;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" value="&lt;b&gt;Tempered prior&lt;/b&gt;&lt;br&gt;z + γ·log n&lt;br&gt;γ ∈ [0, 1]" vertex="1">
+          <mxGeometry height="160" width="310" x="1380" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="loss" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=18;fillColor=#f3d3d8;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" value="&lt;b&gt;Loss&lt;/b&gt;&lt;br&gt;L = CE(·, ỹ)" vertex="1">
+          <mxGeometry height="160" width="250" x="1735" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="select" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=18;fillColor=#d8ecd8;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" value="Ordinal-weighted&lt;br&gt;partner selection&lt;br&gt;p&lt;sub&gt;ij&lt;/sub&gt; ∝ e&lt;sup&gt;−(y&lt;sub&gt;i&lt;/sub&gt;−y&lt;sub&gt;j&lt;/sub&gt;)²/τ²&lt;/sup&gt; w&lt;sub&gt;j&lt;/sub&gt;&lt;br&gt;eff.-number weights w&lt;sub&gt;c&lt;/sub&gt;" vertex="1">
+          <mxGeometry height="220" width="520" x="340" y="510" as="geometry" />
+        </mxCell>
+        <mxCell id="target" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=18;fillColor=#d8ecd8;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" value="Soft ordinal target&lt;br&gt;ỹ : two-hot (λ)&lt;br&gt;Gaussian-smoothed σ" vertex="1">
+          <mxGeometry height="180" width="460" x="1470" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="batch" style="endArrow=block;html=1;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" target="backbone">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="backbone" style="endArrow=block;html=1;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" target="mix">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="mix" style="endArrow=block;html=1;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" target="head">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="head" style="endArrow=block;html=1;strokeColor=#3a3a3a;strokeWidth=3;fontSize=36;" target="prior">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="prior" style="endArrow=block;html=1;strokeColor=#3a3a3a;strokeWidth=3;startSize=3;fontSize=36;" target="loss">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" edge="1" parent="1" source="select" style="endArrow=block;html=1;strokeColor=#b5480f;strokeWidth=3;dashed=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=36;" target="mix">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="600" y="510" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a2" edge="1" parent="1" source="target" style="endArrow=block;html=1;strokeColor=#b5480f;strokeWidth=3;dashed=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=36;" target="loss">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1700" y="530" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="bp" edge="1" parent="1" source="loss" style="endArrow=block;html=1;strokeColor=#b5480f;strokeWidth=3;rounded=1;fontColor=#b5480f;fontStyle=2;fontSize=36;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" target="backbone" value="backpropagation">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1860" y="130" />
+              <mxPoint x="420" y="130" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -2,7 +2,7 @@
 
 Automated framework for systematic evaluation of **class-imbalance mitigation strategies** on Knee Osteoarthritis severity classification (5-class: Grade 0–4) from X-ray images.
 
-The pipeline trains **18 experiment variants** (across 12 version families) with different imbalance techniques on the same ResNet50 backbone, then generates consolidated comparison reports (CSV, bar charts, F1 heatmaps) and an HTML weekly report for rigorous side-by-side analysis.
+The pipeline trains **45 experiment variants** (across 19 version families) with different imbalance techniques on the same ResNet50 backbone, then generates consolidated comparison reports (CSV, bar charts, F1 heatmaps) and an HTML weekly report for rigorous side-by-side analysis.
 
 ---
 
@@ -22,11 +22,32 @@ The pipeline trains **18 experiment variants** (across 12 version families) with
 | `v10_supcon` | **SupCon** (3-phase) | SupConLoss → CE | — | No |
 | `v11_owmixup_ce` | **OWMixup** (CE) τ=t | CrossEntropy | ordinal_weighted | WeightedRandomSampler |
 | `v12_owmixup_balanced` | **OWMixup** + BalSoft τ=t | BalancedSoftmaxLoss | ordinal_weighted | No |
+| `v13_owmixup_queue_*` | **OWMixup + Queue** τ=t | CE / BalSoft | ordinal_weighted_queue | Yes / No |
+| `v14_owmixup_queue_v2_*` | **QueueV2** (bounded reuse) τ=t | CE / BalSoft | ordinal_weighted_queue_v2 | Yes / No |
+| `v15_owmixup_queue_v3_*` | **QueueV3** (true-freq gate) τ=t | CE / BalSoft | ordinal_weighted_queue_v3 | Yes / No |
+| `v16_owmixup_queue_v4_*` | **QueueV4** (freq-modulated) τ=t | CE / BalSoft | ordinal_weighted_queue_v4 | Yes / No |
+| `v17_owmm_*` | **OWMM** (manifold mixup) | CE / BalSoft | ordinal_manifold | No |
+| `v18_owmm_adaptive_*` | **OWMM-Adaptive** | CE / BalSoft | ordinal_manifold_adaptive | No |
+| `v19_owmm_tempered_g*` | **OWMM-Adaptive** + tempered γ | BalSoft (γ-tempered) | ordinal_manifold_adaptive | No |
 
 > **Adjacent Mixup** (`v6`, `v7`): Only pairs images whose class labels differ by at most 1 grade (e.g., Grade 0↔1, 1↔2, 2↔3, 3↔4). Samples that cannot find a valid partner are left unmixed.  
 > **Rule-based Mixup** (`v8`, `v9`): Selects Grade 0 images as anchors and pairs them with Grade {2,3,4}. The mixing coefficient `lam` is clamped to <0.5 so the non-zero partner always contributes the majority, and the label is assigned to that partner. Batches without Grade 0 skip mixup.  
 > **SupCon** (`v10`): Three-phase training — (1) Supervised contrastive pretraining of backbone + projection head with 2-augment views, (2) linear probe with frozen backbone, (3) full finetune of all parameters.  
 > **OWMix** (`v11`, `v12`): Ordinal-Weighted Mixup — assigns mixing coefficients via a Gaussian kernel over the ordinal label distance (`τ` controls kernel width). Each variant runs 4 temperature settings (`τ ∈ {0.5, 1.0, 1.5, 2.0}`) for a total of 8 OWMix sub-variants.
+> 
+> **OWMix + Queue** (`v13`, 8 sub-variants): Adds a per-class CPU memory queue that caches augmented tensors from past batches to serve as mixup partners for under-represented classes. When the current batch lacks enough minority samples, the queue supplies cached candidates. Despite the intent, v13 **regressed below baseline** on both datasets because it caches fully-augmented tensors forever and reuses them unboundedly — the model learns to exploit frozen minority residuals as a shortcut rather than learning real features.
+> 
+> **QueueV2** (`v14`): Fixes v13's shortcut problem. Mixup partners drawn from the queue are (1) **re-augmented** on every draw so they are never identical, (2) evicted after `MIXUP_QUEUE_MAX_REUSE` (default 3) uses, and (3) the queue is only queried when an anchor's class is genuinely **under-represented** in the mini-batch (a rescue-only gate). τ = {1.0, 2.0} × {CE, BalSoft} = 4 sub-variants.
+> 
+> **QueueV3** (`v15`): Same bounded-reuse / re-augment-on-draw as v14, but the rescue-only gate now checks each batch class count against the **true expected count** from the dataset's actual class proportions (via `inv_freq`) instead of a uniform `1/num_classes` threshold. v14's uniform gate fired rescue on nearly every EyePACS batch (35× imbalance, so minority prevalence is tiny) and eroded majority-class recall. v15 self-calibrates per-class so rescue only fires where genuinely needed. τ = {1.0, 2.0} × {CE, BalSoft} = 4 sub-variants.
+> 
+> **QueueV4 — Frequency-Modulated Mixing** (`v16`): Abandons the hard rescue threshold entirely. The per-anchor mixing intensity is **continuously modulated** by the anchor class's rarity: `s = inv_freq[y] / max(inv_freq)`, `lam_eff = 1 - s * (1 - lam)`. Majority anchors mix weakly (clean signal preserved, preventing F1 drop on DR0), minority anchors mix fully. Self-calibrates from inverse frequencies — no hyperparameters, pure soft design faithful to OWMixup's principled approach. τ = {1.0, 2.0} × {CE, BalSoft} = 4 sub-variants.
+> 
+> **OWMM — Ordinal-Weighted Manifold Mixup** (`v17`, 2 sub-variants): A paradigm shift from pixel-space mixing (which produces anatomically meaningless blended X-rays) to **feature-manifold interpolation** at layer3 of the ResNet50. Keeps OWMix's ordinal-distance × tail-frequency partner selection, but (1) interpolates on the feature manifold, (2) uses **effective-number** reweighting (Cui et al. 2019) strong enough for EyePACS's ~35× imbalance, and (3) supervises with **soft targets smoothed along the ordinal grade axis** (two-hot with Gaussian width `OWMM_ORD_SIGMA`). Sampler is OFF for both CE and BalSoft variants so that partner reweighting is the sole balancer.
+> 
+> **OWMM-Adaptive** (`v18`, 2 sub-variants): Same manifold + ordinal-partner design as v17, but the per-sample mixing **strength** is scaled by the anchor class's scarcity (effective-number based). On heavily imbalanced data (EyePACS, ~36×), the majority class is mixed only lightly (`OWMM_MIX_SCALE_MIN = 0.3`) to protect its accuracy, while rare classes keep full mixing. On milder imbalance (KOA, ~13×), the scale spread narrows and degrades gracefully toward plain OWMM. Goal: a single variant that beats baseline on **both** datasets.
+> 
+> **OWMM-Adaptive + Tempered Prior** (`v19`, 3 sub-variants): v18 showed that CE (γ=0) wins EyePACS but drops KOA's Grade 1, while full BalSoft (γ=1) wins KOA but catastrophically over-corrects on EyePACS (majority abandoned, accuracy collapses). v19 makes the loss correction **continuous** by tempering the BalancedSoftmax log-prior with `γ ∈ {0.25, 0.5, 0.75}` — sweeping the middle ground to find a single γ that clears baseline on **both** datasets simultaneously. Same adaptive manifold mixing and sampler-off invariant as v18.
 
 > **Design note:** BalancedSoftmaxLoss (Ren et al., NeurIPS 2020) inherently corrects for class imbalance via log-frequency prior — combining it with WeightedRandomSampler would double-correct, so variants with BalancedSoftmax intentionally disable the sampler.
 
@@ -180,6 +201,7 @@ python run_all.py --seeds 42 123 456                 # Multi-seed (3 runs per ve
 python run_all.py --num_workers 0                    # Win: disable multiprocessing
 python run_all.py --dataset koa                      # Save under results/koa/
 python run_all.py --dataset eyepacs                  # Save under results/eyepacs/
+python run_all.py --paper                            # Run paper's 6-method + v13 sweep subset
 ```
 
 ### Cross-Dataset (EyePACS)
@@ -256,7 +278,9 @@ Produces class distribution charts, pixel statistics, sample image galleries, an
 | `--seeds` | Random seeds for multi-seed runs (run_all) | `[42]` |
 | `--skip` | Version names to skip (run_all only) | — |
 | `--only` | Run only these versions (run_all only) | — |
+| `--paper` | Run paper-curated subset only (run_all) | — |
 | `--mixup_temperature` | OWMix temperature τ | config default |
+| `--prior_gamma` | Tempered BalSoft log-prior γ (v19) | config default |
 | `--supcon_epochs` | SupCon pretraining epochs (v10) | 50 |
 | `--probe_epochs` | Linear probe epochs (v10 phase 2) | 10 |
 | `--finetune_epochs` | Full finetune epochs (v10 phase 3) | 20 |
@@ -342,6 +366,12 @@ All hyperparameters are centralized in [`src/configs/config.py`](src/configs/con
 | `SUPCON_EPOCHS` | 50 | SupCon pretraining epochs |
 | `PROBE_EPOCHS` | 10 | Linear probe epochs |
 | `FINETUNE_EPOCHS` | 20 | Full finetune epochs |
+| `MIXUP_QUEUE_SIZE` | 64 | Per-class CPU memory queue capacity (v13+) |
+| `MIXUP_QUEUE_MAX_REUSE` | 3 | Max times a cached sample is reused before eviction (v14+) |
+| `OWMM_EFFNUM_BETA` | 0.9999 | Effective-number reweight beta for partner selection (v17+) |
+| `OWMM_ORD_SIGMA` | 0.5 | Gaussian width of soft ordinal target smoothing (v17+) |
+| `OWMM_MIX_SCALE_MIN` | 0.3 | Min per-sample mixing scale for majority class (v18) |
+| `OWMM_PRIOR_GAMMA` | 1.0 | Tempering factor on BalSoft log-prior (v19) |
 
 ---
 

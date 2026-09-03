@@ -154,12 +154,13 @@ def run_gradcam_comparison(
         seen.setdefault(lbl, 0)
         seen[lbl] += 1
         selected.append((all_images[idx], lbl))
+    selected.sort(key=lambda x: x[1])
 
     n_models = len(models)
     version_names = list(models.keys())
     class_names = ["Gr 0", "Gr 1", "Gr 2", "Gr 3", "Gr 4"]
 
-    fig, axes = plt.subplots(len(selected), n_models + 1, figsize=(4 * (n_models + 1), 3 * len(selected)))
+    fig, axes = plt.subplots(len(selected), n_models + 1, figsize=(4.5 * (n_models + 1), 4 * len(selected)))
     if len(selected) == 1:
         axes = axes.reshape(1, -1)
 
@@ -167,7 +168,7 @@ def run_gradcam_comparison(
         pil_img = Image.open(path).convert("RGB")
         orig = pil_img.resize((224, 224))
         axes[row_idx, 0].imshow(orig)
-        axes[row_idx, 0].set_title(f"Original\n{class_names[lbl]}", fontsize=9)
+        axes[row_idx, 0].set_title(f"Original\n{class_names[lbl]}", fontsize=36)
         axes[row_idx, 0].axis("off")
 
         for col_idx, (vname, model) in enumerate(models.items()):
@@ -175,15 +176,17 @@ def run_gradcam_comparison(
             extractor = GradCAM(model, layer)
             input_tensor = val_transform(pil_img).unsqueeze(0).to(device)
             with torch.set_grad_enabled(True):
-                cam = extractor.generate(input_tensor, class_idx=lbl)
+                out = model(input_tensor)
+                pred = out.argmax(dim=1).item()
+                cam = extractor.generate(input_tensor, class_idx=pred)
             extractor.cleanup()
             over = overlay_heatmap(orig, cam, alpha=0.5)
             axes[row_idx, col_idx + 1].imshow(over)
-            axes[row_idx, col_idx + 1].set_title(vname, fontsize=8)
+            axes[row_idx, col_idx + 1].set_title(vname, fontsize=32)
             axes[row_idx, col_idx + 1].axis("off")
 
     plt.tight_layout()
     save_path = os.path.join(output_dir, f"gradcam_comparison{suffix}.png")
-    fig.savefig(save_path, dpi=200, bbox_inches="tight")
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return save_path

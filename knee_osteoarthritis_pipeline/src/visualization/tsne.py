@@ -49,12 +49,12 @@ def plot_tsne(features: np.ndarray, labels: np.ndarray, save_path: str,
     for c in range(n_classes):
         mask = labels == c
         ax.scatter(emb[mask, 0], emb[mask, 1], c=[colors[c]], label=class_names[c],
-                   alpha=0.6, s=12, edgecolors="none")
-    ax.set_title(title, fontsize=14, fontweight="bold")
-    ax.legend(fontsize=9, markerscale=2, loc="best")
+                   alpha=0.6, s=16, edgecolors="none")
+    ax.set_title(title, fontsize=16, fontweight="bold")
+    ax.legend(fontsize=13, markerscale=2, loc="best")
     ax.axis("off")
     fig.tight_layout()
-    fig.savefig(save_path, dpi=200, bbox_inches="tight")
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -70,10 +70,10 @@ def run_tsne_comparison(
     os.makedirs(output_dir, exist_ok=True)
 
     n_models = len(models)
-    class_names = ["Gr 0\nHealthy", "Gr 1\nDoubtful", "Gr 2\nMinimal", "Gr 3\nModerate", "Gr 4\nSevere"]
+    class_names = ["Gr 0: Healthy", "Gr 1: Doubtful", "Gr 2: Minimal", "Gr 3: Moderate", "Gr 4: Severe"]
     colors = plt.cm.tab10(np.linspace(0, 1, 5))
 
-    fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 4.5))
+    fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 5.2))
     if n_models == 1:
         axes = [axes]
 
@@ -85,15 +85,16 @@ def run_tsne_comparison(
         for c in range(5):
             mask = labels == c
             ax.scatter(emb[mask, 0], emb[mask, 1], c=[colors[c]], label=class_names[c],
-                       alpha=0.5, s=8, edgecolors="none")
-        ax.set_title(vname, fontsize=12, fontweight="bold")
+                       alpha=0.5, s=14, edgecolors="none")
+        ax.set_title(vname, fontsize=32, fontweight="bold")
         ax.axis("off")
 
-    handles = [plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=colors[c], markersize=8, label=class_names[c])
+    handles = [plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=colors[c], markersize=18, label=class_names[c])
                for c in range(5)]
-    fig.legend(handles=handles, loc="lower center", ncol=5, fontsize=8, frameon=False)
-    plt.tight_layout(rect=[0, 0.08, 1, 1])
+    fig.legend(handles=handles, loc="lower center", ncol=5, fontsize=28, frameon=False,
+               bbox_to_anchor=(0.5, 0.0), columnspacing=2.5)
+    plt.tight_layout(rect=[0, 0.13, 1, 1])
     save_path = os.path.join(output_dir, f"tsne_comparison{suffix}.png")
-    fig.savefig(save_path, dpi=200, bbox_inches="tight")
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return save_path

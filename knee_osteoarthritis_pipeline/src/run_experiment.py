@@ -85,8 +85,20 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
     if mixup_temp is None:
         mixup_temp = getattr(args, 'mixup_temperature', None)
     if mixup_temp is not None:
-        version_dir = f"{name}_t{str(mixup_temp).replace('.', '')}"
         cfg_mod.MIXUP_TEMPERATURE = mixup_temp
+        # Only append the tau suffix if the version name doesn't already encode
+        # it. Configs like "v11_owmixup_ce_t20" bake the temperature into the
+        # name *and* set mixup_temperature; appending again produced duplicate
+        # "..._t20_t20" dirs that split seeds of the same experiment apart.
+        suffix = f"_t{str(mixup_temp).replace('.', '')}"
+        if not version_dir.endswith(suffix):
+            version_dir += suffix
+
+    # prior_gamma override: replace directory name so results go to v19_g{val}
+    cli_gamma = getattr(args, "prior_gamma", None)
+    cfg_gamma = version_cfg.get("prior_gamma", getattr(cfg_mod, "OWMM_PRIOR_GAMMA", 1.0))
+    if cli_gamma is not None and abs(cli_gamma - cfg_gamma) > 1e-9:
+        version_dir = f"v19_g{str(cli_gamma).replace('.', '')}"
     save_dir = os.path.join(results_dir, version_dir, f"seed_{seed}")
 
     set_seed(seed)
@@ -136,6 +148,12 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
     # ── All other versions (standard supervised learning) ─────────────────────
     model = get_resnet50_model(num_classes=NUM_CLASSES, pretrained=True).to(device)
 
+    # v19: tempered balanced-softmax. Priority: CLI --prior_gamma > per-version
+    # config "prior_gamma" > global default 1.0 (= original full Balanced Softmax).
+    prior_gamma = getattr(args, "prior_gamma", None)
+    if prior_gamma is None:
+        prior_gamma = version_cfg.get("prior_gamma", getattr(cfg_mod, "OWMM_PRIOR_GAMMA", 1.0))
+
     criterion = build_loss(
         loss_type           = loss_type,
         class_weights       = class_weights,
@@ -143,12 +161,34 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
         device              = device,
         focal_gamma         = FOCAL_GAMMA,
         supcon_temperature  = SUPCON_TEMPERATURE,
+        prior_gamma         = prior_gamma,
     )
+    if loss_type == "balanced_softmax" and abs(prior_gamma - 1.0) > 1e-9:
+        print(f"  Prior   : tempered balanced_softmax  |  gamma = {prior_gamma}")
 
-    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", patience=3, factor=0.5
-    )
+    lr           = getattr(args, "lr", None) or LR
+    patience     = getattr(args, "patience", None) or EARLY_STOPPING_PATIENCE
+    mixup_alpha  = getattr(args, "mixup_alpha", None) or MIXUP_ALPHA
+    sched_kind   = getattr(args, "scheduler", "plateau") or "plateau"
+    warmup_ep    = getattr(args, "warmup_epochs", 3)
+
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
+    if sched_kind == "cosine":
+        # Linear warmup -> cosine anneal over the remaining epochs. Gives mixup
+        # (a regularizer that needs longer, smoother training) room to pay off.
+        warmup = optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=0.1, total_iters=max(1, warmup_ep)
+        )
+        cosine = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max(1, epochs - warmup_ep)
+        )
+        scheduler = optim.lr_scheduler.SequentialLR(
+            optimizer, schedulers=[warmup, cosine], milestones=[max(1, warmup_ep)]
+        )
+    else:
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", patience=3, factor=0.5
+        )
 
     # ── Training ──────────────────────────────────────────────────────────────
     trainer = Trainer(
@@ -160,15 +200,19 @@ def run_version(version_cfg: dict, args, seed: int = 42) -> dict:
         device                  = device,
         version_name            = name,
         lr_scheduler            = scheduler,
-        early_stopping_patience = EARLY_STOPPING_PATIENCE,
+        early_stopping_patience = patience,
         use_mixup               = use_mixup,
         mixup_mode              = mixup_mode,
-        mixup_alpha             = MIXUP_ALPHA,
+        mixup_alpha             = mixup_alpha,
         mixup_adjacent_gap      = MIXUP_ADJACENT_GAP,
         mixup_rule_lam_max      = MIXUP_RULE_LAM_MAX,
         mixup_temperature       = cfg_mod.MIXUP_TEMPERATURE,
         mixup_queue_size        = getattr(cfg_mod, "MIXUP_QUEUE_SIZE", 64),
+        mixup_queue_max_reuse   = getattr(cfg_mod, "MIXUP_QUEUE_MAX_REUSE", 3),
         dataset_class_counts    = class_counts,
+        owmm_effnum_beta        = getattr(cfg_mod, "OWMM_EFFNUM_BETA", 0.9999),
+        owmm_ord_sigma          = getattr(cfg_mod, "OWMM_ORD_SIGMA", 0.5),
+        owmm_mix_scale_min      = getattr(cfg_mod, "OWMM_MIX_SCALE_MIN", 0.3),
     )
 
     _, best_metrics = trainer.fit(epochs=epochs, save_dir=save_dir)
@@ -375,6 +419,22 @@ def parse_args():
                         help="CUDA device ID (overrides config.CUDA_DEVICE_ID)")
     parser.add_argument("--mixup_temperature", type=float, default=None,
                         help="OWMix temperature tau (overrides config.MIXUP_TEMPERATURE)")
+    parser.add_argument("--prior_gamma", type=float, default=None,
+                        help="v19: tempered balanced-softmax factor gamma in [0,1] "
+                             "(1=full BalSoft, 0=plain CE; overrides per-version config)")
+    # Retuned-regime overrides (Plan B: give mixup room to pay off on large data)
+    parser.add_argument("--lr", type=float, default=None,
+                        help="Learning rate (overrides config.LR)")
+    parser.add_argument("--patience", type=int, default=None,
+                        help="Early-stopping patience (overrides config.EARLY_STOPPING_PATIENCE)")
+    parser.add_argument("--mixup_alpha", type=float, default=None,
+                        help="Mixup Beta alpha (overrides config.MIXUP_ALPHA)")
+    parser.add_argument("--scheduler", type=str, default="plateau",
+                        choices=["plateau", "cosine"],
+                        help="LR schedule: 'plateau' (ReduceLROnPlateau, default) "
+                             "or 'cosine' (linear warmup + cosine anneal)")
+    parser.add_argument("--warmup_epochs", type=int, default=3,
+                        help="Warmup epochs for --scheduler cosine (default: 3)")
     # SupCon-specific
     parser.add_argument("--supcon_epochs",   type=int, default=None,
                         help="SupCon pretraining epochs (v10)")

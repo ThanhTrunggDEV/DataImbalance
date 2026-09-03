@@ -9,120 +9,130 @@
 \usepackage{color}
 \usepackage{placeins}
 \usepackage{float}
+\usepackage[ruled,vlined]{algorithm2e}
 \def\UrlFont{\rmfamily}
 \newcommand{\placeholder}[2][0.85]{%
   \fbox{\parbox{#1\textwidth}{\centering\vspace{#2}{\color{gray}FIGURE PLACEHOLDER}\vspace{#2}}}}
 
 \begin{document}
+\raggedbottom  % stack content top-down; don't stretch vertical space to fill the page
 
-\title{OWMixup: Ordinal-Weighted Mixup for Imbalanced Medical Image Classification}
+\title{OWMM: Ordinal-Weighted Manifold Mixup with a Tempered Prior for Imbalanced Medical Image Grading}
 
+% \author{T.Q. Chien$^{1*}$, L.T. Ha$^{1}$, N.T. Trung$^{1}$, N.T.A. Hoang$^{1}$}
 
+% \institute{
+% $^1$Thai Nguyen University of Information and Communication Technology (ICTU), Thai Nguyen, Vietnam\\[1ex]
+% Correspondence: T.Q. Chien, tqchien@ictu.edu.vn
+% }
 
 \maketitle
 
 \begin{abstract}
-Class imbalance is a persistent challenge in medical image classification, particularly for ordinal grading tasks such as Knee Osteoarthritis (OA) severity and Diabetic Retinopathy (DR) grading. While existing methods treat imbalance through re-weighting, margin-based losses, or generic mixup augmentation, they do not exploit the ordinal structure inherent in medical grading scales. We propose \textit{Ordinal-Weighted Mixup} (OWMixup), a novel mixup variant that assigns mixing weights via a Gaussian kernel over ordinal distance, controlled by a temperature parameter $\tau$. We systematically compare six representative configurations---spanning loss-based methods (Balanced Softmax, Focal Loss), ordinal-aware augmentation (Adjacent Mixup + Balanced Softmax), and our proposed OWMixup---on two medical datasets: Knee OA (5-class) and EyePACS Diabetic Retinopathy (5-class). Our key findings are threefold: (1) incorporating ordinal structure into mixup consistently improves per-class F1 on minority grades, with Adjacent Mixup + Balanced Softmax improving Grade~1 from 0.282 to 0.413 ($+0.131$) on KOA; (2) OWMixup generalizes adjacent mixup as a special case and achieves competitive cross-dataset performance (EyePACS macro F1 = 0.537, competitive with the baseline 0.555); (3) the majority class (Grade~0) is only marginally affected, confirming that ordinal-aware methods redistribute learning capacity toward minority classes rather than degrading overall accuracy.
+Medical severity grading---such as knee osteoarthritis and diabetic retinopathy---is simultaneously ordinal and severely class-imbalanced, a combination that defeats generic imbalance remedies. Loss re-weighting corrects frequency but ignores grade ordering, while mixup augmentation blends images in pixel space, an operation that destroys the fine-grained texture on which medical decisions rely and treats a Grade~0/Grade~4 blend as no less valid than a Grade~0/Grade~1 one. We propose Ordinal-Weighted Manifold Mixup: mixing partners are sampled by a Gaussian kernel over ordinal distance modulated by an effective-number frequency weight, the interpolation is performed on hidden features rather than pixels, and supervision uses a soft target smoothed along the grade axis. Crucially, the method couples this with a tempered class prior $\gamma\in[0,1]$ that continuously interpolates between plain cross-entropy ($\gamma=0$) and full Balanced Softmax ($\gamma=1$). On two five-grade benchmarks---knee osteoarthritis radiographs and EyePACS retinal fundus images---it is the only compared method that surpasses the cross-entropy baseline on both datasets across macro F1, quadratic weighted kappa, and mean absolute error. An ablation shows why the tempered prior is essential: full Balanced Softmax collapses the majority grade on the highly skewed retinopathy data (macro F1 $0.278$), while an intermediate $\gamma$ recovers a robust optimum on both datasets, with the optimal $\gamma$ tracking imbalance severity.
 
-\keywords{Medical Image Classification, Class Imbalance, Mixup, Ordinal Classification, Knee Osteoarthritis, Diabetic Retinopathy}
+\keywords{Medical Image Grading, Class Imbalance, Manifold Mixup, Ordinal Classification, Knee Osteoarthritis, Diabetic Retinopathy}
 \end{abstract}
 
 \section{Introduction}
 
-Medical image classification tasks such as Knee Osteoarthritis (OA) severity grading using the Kellgren-Lawrence (KL) system~\cite{kellgren1957radiological,tiulpin2018automatic} and Diabetic Retinopathy (DR) grading~\cite{gulshan2016development} share two fundamental challenges: they are both \textit{ordinal} (grades follow a natural progression from healthy to severe) and \textit{highly imbalanced} (healthy cases vastly outnumber severe ones)~\cite{buda2018systematic}. Standard cross-entropy training is particularly ill-suited for these tasks, as it tends to overfit minority grades while ignoring the ordinal structure that could guide generalization.
+Medical image grading tasks such as Knee Osteoarthritis (OA) severity on the Kellgren--Lawrence (KL) system~\cite{kellgren1957radiological} and Diabetic Retinopathy (DR) grading~\cite{gulshan2016development} share two challenges: they are \textit{ordinal} (grades progress from healthy to severe) and highly imbalanced (healthy cases vastly outnumber severe ones)~\cite{buda2018systematic}. Standard cross-entropy (CE) is ill-suited: it maximizes overall accuracy by defaulting to the majority grade, leaving the rare intermediate grades---often the clinically decisive ones---poorly recognized, a skew-driven failure documented well beyond medicine~\cite{phung2026xai}, while ignoring the ordinal structure that could guide generalization.
 
-A large body of work addresses class imbalance through loss-based corrections. Focal Loss~\cite{lin2017focal} down-weights easy samples, Balanced Softmax~\cite{ren2020balanced} adjusts logits via class priors, Label-Distribution-Aware Margin loss (LDAM)~\cite{cao2019ldam} enforces larger margins for rare classes, and Class-Balanced loss~\cite{cui2019classbalanced} re-weights by the effective number of samples. Decoupling representation learning from classifier learning~\cite{kang2020decoupling} further improves long-tail performance. Data augmentation offers an alternative route: Mixup~\cite{zhang2018mixup} creates convex combinations of training pairs, and its variants extend this idea to hidden representations~\cite{verma2019manifold}, salient regions~\cite{yun2019cutmix}, or class-balanced sampling~\cite{galdran2021balanced}. However, all these methods are designed for generic multi-class settings and do not exploit the ordinal relationships between grades.
+A large body of work addresses imbalance through loss-based corrections. Focal Loss~\cite{lin2017focal} down-weights easy samples; Balanced Softmax~\cite{ren2020balanced} shifts logits by a log-frequency prior, with a smoothed variant for extreme imbalance~\cite{vu2024smooth}; logit adjustment~\cite{menon2021logit} scales that prior; and Class-Balanced loss~\cite{cui2019classbalanced} re-weights by the effective number of samples. Self-labeling refines tail classes without extra supervision~\cite{vu2024lcsl}. Augmentation is orthogonal: Mixup~\cite{zhang2018mixup} combines training pairs, with variants on hidden representations~\cite{verma2019manifold}, salient regions~\cite{yun2019cutmix}, class-balanced sampling~\cite{galdran2021balanced}, or soft labels distilled from augmented views~\cite{thuong2025skdnet}, and long-tailed analyses~\cite{vu2024augmentation}. For ordinal structure, OR-CNN~\cite{niu2016coral} encodes grade order via cumulative binary subtasks, and---closest to us---ordinal label-distribution learning with asymmetric priors~\cite{shaik2025ordinal} targets imbalanced retinal grading.
 
-Ordinal regression methods such as CORAL~\cite{niu2016coral} explicitly model the ordinal structure by learning binary classifiers for each threshold between consecutive classes. While effective, they treat these thresholds as fixed decision boundaries and do not integrate ordinal information into the data augmentation process. A simple way to incorporate ordinality into mixup is to restrict pairing to samples whose grades differ by at most one---often called Adjacent Mixup. However, this hard-threshold design lacks a principled control knob: it either applies full ordinal weight or none, without a way to interpolate between the two.
+These leave a gap on ordinal, imbalanced, fine-grained images. First, mixup variants interpolate in pixel space: alpha-blending two fundus photographs or knee radiographs is anatomically meaningless and erases the subtle cues (osteophytes, micro-aneurysms) grading depends on, so the signal is largely noise. Second, pairing is ordinal-blind---a healthy/severe blend is as likely as a healthy/doubtful one. Third, loss re-weighting is binary: CE applies none, while full Balanced Softmax applies the entire prior and, under extreme imbalance, over-corrects and abandons the majority. No single configuration is robust across regimes.
 
-In this paper, we propose \textit{Ordinal-Weighted Mixup} (OWMixup), which introduces a continuous temperature parameter $\tau$ that controls the strength of ordinal weighting via a Gaussian kernel over class distances. Our approach smoothly interpolates between class-preserving augmentation ($\tau \to 0$), soft ordinal-aware mixing (intermediate $\tau$), and vanilla mixup with frequency biasing ($\tau \to \infty$). We systematically compare six configurations---spanning loss-based methods, hard ordinal augmentation, and OWMixup---on the Knee OA and EyePACS DR datasets. Our contributions are:
+In this paper we propose Ordinal-Weighted Manifold Mixup (OWMM), which (i) samples partners with a Gaussian kernel over ordinal grade distance modulated by an effective-number frequency weight, (ii) interpolates on intermediate feature maps where linear combinations are semantically valid, preserving pixel-level texture, (iii) supervises with an ordinally smoothed soft target, and (iv) replaces the binary loss choice with a tempered prior $\gamma\in[0,1]$ bridging CE and Balanced Softmax. Our contributions are:
 
 \begin{itemize}
-  \item \textbf{OWMixup}, a novel mixup variant with a Gaussian ordinal kernel controlled by temperature $\tau$, generalizing Adjacent Mixup as a soft-constrained special case;
-  \item A \textbf{systematic per-class F1 comparison} across six configurations on two medical datasets, revealing how ordinal-aware methods redistribute learning capacity;
-  \item \textbf{Key finding}: Adjacent Mixup + Balanced Softmax improves Grade~1 F1 by $+0.131$ on KOA, while OWMixup achieves competitive performance (EyePACS macro F1 = 0.537 vs baseline 0.555).
+  \item OWMM, a mixup that interpolates ordinal-selected partners on the feature manifold, coupled with a continuous tempered class prior $\gamma$;
+  \item Evidence that OWMM is the only compared method beating CE on both KOA and EyePACS across macro F1, quadratic weighted kappa (QWK) and mean absolute error (MAE);
+  \item An ablation showing the tempered prior is necessary---full Balanced Softmax collapses the majority grade under severe imbalance---and that the optimal $\gamma$ tracks imbalance severity.
 \end{itemize}
+
+% Nudge: let a few more lines fit on this page so \section{Methodology} is pulled
+% up instead of being bumped (with trailing whitespace) to the next page.
+% Adjust the multiplier (1--4) if the break lands differently after edits.
 
 \section{Methodology}
 
-In this section we present our proposed Ordinal-Weighted Mixup (OWMixup). We first review the standard Mixup formulation, describe Adjacent Mixup as an ordinal baseline, and then introduce our approach which biases the pairing process toward ordinal structure through a Gaussian kernel.
+\subsection{Problem Setup}
 
-\subsection{Mixup Regularization}
+We cast ordinal medical grading as a $K$-class classification problem ($K=5$). Given a training set $\mathcal{D}=\{(\mathbf{x}_i, y_i)\}_{i=1}^{N}$ of images $\mathbf{x}_i$ and ordinal labels $y_i\in\{0,\dots,K\!-\!1\}$ ordered from healthy ($0$) to severe ($K\!-\!1$), we learn a model $f_\theta$ with a backbone feature extractor and a linear head producing logits $\mathbf{z}\in\mathbb{R}^{K}$. Two properties make the task hard. (i)~\textit{Imbalance}: the per-class training counts $n_0,\dots,n_{K-1}$ (with $\sum_{c} n_c = N$) are highly skewed ($n_0\gg n_{K-1}$; $2{,}286$ vs.\ $173$ on KOA, a ratio of $\sim\!13\times$, and up to $\sim\!36\times$ on EyePACS), so a model minimizing average error collapses onto the majority grade. (ii)~\textit{Ordinality}: grades lie on a line, so confusing adjacent grades is far less costly than confusing distant ones---a structure CE ignores. Writing $B$ for the mini-batch size and $\mathbf{e}_c$ for the one-hot vector of class $c$, our objective is an augmentation that exploits (ii) to mitigate (i): raising minority-grade recognition without sacrificing the majority, and respecting grade order. Accordingly we evaluate both frequency-aware (macro F1) and ordinal criteria (QWK, MAE) rather than accuracy alone.
 
-Standard Mixup~\cite{zhang2018mixup} was introduced as a simple yet effective regularization technique to reduce overfitting. Given a training example $(\mathbf{x}_i, y_i)$ consisting of an image $\mathbf{x}_i$ and its one-hot label $y_i$, Mixup creates convex combinations with a randomly paired sample $(\mathbf{x}_j, y_j)$:
+\subsection{Ordinal-Weighted Manifold Mixup}
 
-\begin{equation}
-\hat{\mathbf{x}} = \lambda \mathbf{x}_i + (1-\lambda)\mathbf{x}_j,\quad
-\hat{y} = \lambda y_i + (1-\lambda) y_j,
-\label{eq:mixup}
-\end{equation}
+OWMM augments each mini-batch through four coupled mechanisms; Fig.~\ref{fig:method} illustrates the pipeline and Alg.~\ref{alg:owmm} gives the procedure.
 
-where $\lambda \sim \text{Beta}(\alpha, \alpha)$ with $\alpha = 0.4$. The mixed samples encourage the model to behave linearly between training examples, improving generalization and calibration~\cite{zhang2018mixup,thulasidasan2019mixup}. However, vanilla Mixup pairs samples uniformly regardless of class. In a 5-class ordinal task, Grade~0 (Healthy) is as likely to mix with Grade~4 (Severe) as with Grade~1 (Doubtful), producing mixed labels like $\hat{y} \approx [0.5, 0, 0, 0, 0.5]$ that are clinically implausible and waste interpolation capacity on meaningless combinations.
-
-\subsection{Adjacent Mixup}
-
-A natural ordinal baseline is to restrict pairing to neighboring grades:
-
-\begin{equation}
-|y_i - y_j| \leq 1,
-\label{eq:adjacent}
-\end{equation}
-
-ensuring that mixed samples only combine clinically adjacent classes. This constraint is motivated by the inherent ambiguity of ordinal decision boundaries. In the KL system, the transition from Grade~0 (Healthy) to Grade~1 (Doubtful) represents a gradual radiographic change where even expert radiologists often disagree. By exposing the model to convex combinations of adjacent classes, Adjacent Mixup trains on precisely these ambiguous boundary regions. The model learns smooth, clinically plausible transitions rather than sharp but brittle decision surfaces, which is particularly beneficial for minority intermediate grades where training data is scarce.
-
-However, this hard threshold either enforces full ordinality or none at all, without a mechanism to control the strictness of ordinal enforcement.
-
-\subsection{Ordinal-Weighted Mixup (OWMixup)}
-
-We propose OWMixup, which biases the Mixup pairing process toward ordinal structure. The key idea is to control \textit{which} samples are mixed together, rather than how aggressively they are mixed. We define a Gaussian kernel over class distances:
-
-\begin{equation}
-w_{ij} = \exp\!\left(-\frac{(y_i - y_j)^2}{\tau^2}\right),
-\label{eq:kernel}
-\end{equation}
-
-where $\tau > 0$ is a temperature parameter controlling how quickly the weight decays with ordinal distance. The resulting pairing probability for a pair $(i,j)$ is:
-
-\begin{equation}
-p_{ij} = \frac{w_{ij} \cdot w_{ij}^{\text{freq}}}{\sum_{k} w_{ik} \cdot w_{ik}^{\text{freq}}},
-\label{eq:pairing}
-\end{equation}
-
-where $w_{ij}^{\text{freq}} = 1 / \sqrt{n_{y_i} \cdot n_{y_j}}$ is an inverse square-root class frequency weight that further encourages mixing with rare classes. The mixing coefficient $\lambda$ for the selected pair is drawn independently from a $\text{Beta}(\alpha, \alpha)$ distribution.
-
-During training, for each anchor sample in a mini-batch we compute pairing probabilities $p_{ij}$ over all other batch samples via Eq.~\ref{eq:pairing}, draw a partner index $j$ from $\text{Multinomial}(p_{i1}, \dots, p_{iB})$, and then apply standard Mixup interpolation (Eq.~\ref{eq:mixup}) with the sampled $\lambda$. The pairing overhead is negligible as the weight matrix is $O(K^2)$ with $K=5$.
-
-This formulation has four properties:
-\begin{itemize}
-  \item When $\tau \to 0$, $w_{ij} \to 0$ for $y_i \neq y_j$, so samples are almost always paired within the same class (no cross-class mixing).
-  \item When $\tau \to \infty$, $w_{ij} \to 1$ for all pairs, recovering vanilla Mixup with class-frequency biasing.
-  \item At intermediate $\tau$, the pairing probability decays smoothly with ordinal distance. This acts as a \textit{soft} generalization of Adjacent Mixup, which applies a hard threshold $|y_i - y_j| \leq 1$.
-  \item The inverse frequency weight prevents minority classes (e.g., Grade~4 with 173 samples on KOA) from being isolated during pairing. The form $1/\sqrt{n_{y_i} n_{y_j}}$ balances between instance-based sampling (majority-dominated) and strict class-balanced sampling, complementing the strengths of both strategies~\cite{galdran2021balanced}.
-\end{itemize}
-
-\section{Experiments}
-
-In this section we detail our experimental setup: considered datasets with relevant statistics, baseline techniques for comparison, evaluation metrics, and a discussion on the numerical differences in performance between methods.
-
-\subsection{Experimental Configurations}
-
-We design six configurations that progressively isolate the role of ordinal structure in imbalance correction. The baseline (Cross-Entropy) establishes the lower bound. Two loss-based re-weighting methods---Balanced Softmax~\cite{ren2020balanced} (logit adjustment via class priors) and Focal Loss~\cite{lin2017focal} ($\gamma=2$, easy-sample down-weighting)---test whether re-weighting alone suffices. Adjacent Mixup with Balanced Softmax introduces a hard ordinal constraint, mixing only samples with $|y_i - y_j| \leq 1$. Our proposed OWMixup replaces this hard threshold with its soft Gaussian kernel, evaluated in two variants: with CE ($\tau=2.0$) and with Balanced Softmax ($\tau=0.5$). Table~\ref{tab:config} summarizes all configurations.
-
-\begin{table}[H]
+\begin{figure}[!ht]
 \centering
-\caption{Summary of experimental configurations.}
+\includegraphics[width=\linewidth]{figs/pipeline_owmm}
+\caption{OWMM pipeline. Partners are selected by an ordinal Gaussian kernel with effective-number frequency weighting; interpolation is applied to the \texttt{layer3} feature manifold; the head is supervised with an ordinally smoothed soft target; and a tempered prior $\gamma$ scales the Balanced-Softmax logit shift.}
+\label{fig:method}
+\end{figure}
+
+\textbf{Ordinal-weighted partner selection.} For an anchor $i$ we sample a partner $j$ with probability proportional to a Gaussian kernel over ordinal distance, modulated by the partner class's frequency weight:
+\begin{equation}
+p_{ij}\ \propto\ \exp\!\left(-\frac{(y_i-y_j)^2}{\tau^2}\right)\cdot w_{y_j},\qquad p_{ii}=0,
+\label{eq:pair}
+\end{equation}
+where $\tau$ controls how sharply the weight decays with grade distance (fixed to $\tau=1$). The frequency weight uses the \textit{effective number} of samples~\cite{cui2019classbalanced}, $w_c=(1-\beta)/(1-\beta^{\,n_c})$ (mean-normalized, $\beta=0.9999$), up-weighting rare grades far more aggressively than inverse-square-root weighting---necessary at $36\times$ imbalance. A partner is drawn as $j\sim\text{Multinomial}(p_{i1},\dots,p_{iB})$.
+
+\textbf{Manifold interpolation.} Rather than blending pixels, we forward each image $\mathbf{x}_i$ through the backbone $f_\theta$ to an intermediate stage (ResNet \texttt{layer3}) and mix the feature maps $\mathbf{h}_i,\mathbf{h}_j$ of the anchor and its partner,
+\begin{equation}
+\mathbf{h}=\lambda_i\,\mathbf{h}_i+(1-\lambda_i)\,\mathbf{h}_{j},\qquad \lambda_i\sim\text{Beta}(\alpha,\alpha),
+\label{eq:manifold}
+\end{equation}
+with $\alpha=0.4$ and $\lambda_i$ drawn per anchor; $\mathbf{h}$ then continues through the remaining layers. Feature-space interpolation is semantically valid and leaves the input texture intact~\cite{verma2019manifold}. A scarcity-adaptive scale then shrinks the partner fraction for majority anchors, $\lambda_i \leftarrow 1-(1-\lambda_i)\,s_{y_i}$ with $s_c=\operatorname{clip}(w_c,\,s_{\min},\,1)$ and $s_{\min}=0.3$, preserving full mixing strength for rare anchors while protecting majority accuracy under extreme skew.
+
+\textbf{Soft ordinal target.} The mixed sample is supervised with a two-hot target $\lambda_i\,\mathbf{e}_{y_i}+(1-\lambda_i)\,\mathbf{e}_{y_j}$ additionally smoothed by a Gaussian over the grade axis (width $\sigma=0.5$), training against a distribution consistent with ordinal geometry rather than a hard label.
+
+\textbf{Tempered prior.} We generalize Balanced Softmax~\cite{ren2020balanced} with a temper $\gamma\in[0,1]$ on the log-frequency prior:
+\begin{equation}
+\mathcal{L}=\mathrm{CE}\big(\mathbf{z}+\gamma\log\mathbf{n},\ \tilde{\mathbf{y}}\big),
+\label{eq:temper}
+\end{equation}
+where $\mathbf{n}=(n_0,\dots,n_{K-1})$ gathers the per-class counts of the training set $\mathcal{D}$ and $\tilde{\mathbf{y}}$ is the soft target. Here $\gamma=0$ recovers CE, $\gamma=1$ is full Balanced Softmax, and intermediate $\gamma$ applies a partial correction (equivalent to scaled logit adjustment~\cite{menon2021logit}). We do not additionally apply class-balanced resampling, so the partner weighting of Eq.~\ref{eq:pair} and the tempered prior of Eq.~\ref{eq:temper} are the only balancing mechanisms, avoiding double correction.
+
+\begin{algorithm}[!ht]
+\DontPrintSemicolon
+\caption{OWMM training step on a mini-batch}
+\label{alg:owmm}
+\KwIn{$\{(\mathbf{x}_i,y_i)\}_{i=1}^{B}$;\ model $f_\theta$;\ counts $\mathbf{n}$;\ weights $\{w_c\}$;\ scales $\{s_c\}$;\ $\gamma,\alpha,\tau,\sigma$}
+\KwOut{updated parameters $\theta$}
+$\mathbf{h}_{1:B} \leftarrow f_\theta(\mathbf{x}_{1:B})$ up to \texttt{layer3}\;
+\For{$i \leftarrow 1$ \KwTo $B$}{
+  $\lambda_i \sim \mathrm{Beta}(\alpha,\alpha)$;\quad $\lambda_i \leftarrow 1-(1-\lambda_i)\,s_{y_i}$\tcp*{scarcity-adaptive strength}
+  $j \sim \mathrm{Multinomial}(p_{i\cdot})$,\ \ $p_{ij}\propto e^{-(y_i-y_j)^2/\tau^2}w_{y_j}$\tcp*{Eq.~\ref{eq:pair}}
+  $\tilde{\mathbf{h}}_i \leftarrow \lambda_i\mathbf{h}_i + (1-\lambda_i)\mathbf{h}_j$;\quad $\mathbf{z}_i \leftarrow \mathrm{Head}(\mathrm{Layer4}(\tilde{\mathbf{h}}_i))$\tcp*{Eq.~\ref{eq:manifold}}
+  $\tilde{\mathbf{y}}_i \leftarrow \mathrm{OrdSmooth}(\lambda_i\mathbf{e}_{y_i} + (1-\lambda_i)\mathbf{e}_{y_j};\ \sigma)$\;
+}
+$\mathcal{L} \leftarrow \tfrac{1}{B}\sum_i \mathrm{CE}(\mathbf{z}_i + \gamma\log\mathbf{n},\ \tilde{\mathbf{y}}_i)$;\quad $\theta \leftarrow \mathrm{AdamW}(\theta, \nabla_\theta\mathcal{L})$\tcp*{Eq.~\ref{eq:temper}}
+\end{algorithm}
+
+\textbf{Relation to prior work.} With pixel-space mixing, a hard neighbor threshold, no soft-target smoothing, and $\gamma=1$, OWMM reduces to ordinal/adjacent mixup plus Balanced Softmax; with $\tau\!\to\!\infty$ and $\gamma=0$ it reduces to vanilla Mixup~\cite{zhang2018mixup}. OWMM's novelty is the combination of manifold interpolation, ordinal partner selection with effective-number weighting, and the continuous tempered prior.
+
+\section{Experiment}
+
+\subsection{Experimental Setup}
+
+We compare six configurations (Table~\ref{tab:config}): a CE baseline; two loss corrections (Balanced Softmax, Focal Loss with focusing parameter $2$); vanilla Mixup; Adjacent Mixup (hard neighbor threshold with Balanced Softmax); and our OWMM, whose temper $\gamma$ is selected by validation macro F1 per dataset. As these differ along several axes, the controlled ablation is the $\gamma$-sweep of Table~\ref{tab:gamma}. All models use an ImageNet-pretrained ResNet-50~\cite{he2016deep} with a Dropout($0.5$)+linear head on the $2048$-d features. We train $30$ epochs (batch $32$) with AdamW (lr $10^{-4}$, weight decay $10^{-4}$), halving the lr on validation-loss plateau (patience $3$, factor $0.5$), clipping gradients to norm $1.0$, and early-stopping (patience $7$) on validation macro F1. For OWMM we fix $\tau=1$, $\alpha=0.4$, effective-number $\beta=0.9999$, ordinal smoothing $\sigma=0.5$, and majority-protection floor $s_{\min}=0.3$. All results use seed $123$, trained in PyTorch on one NVIDIA RTX A4000 ($16$ GB).
+
+\begin{table}[!ht]
+\centering
+\caption{Summary of the six compared configurations.}
 \label{tab:config}
 \small
 \begin{tabular}{lc}
 \toprule
-Method & Imbalance Strategy \\
+\textbf{Method} & \textbf{Imbalance / Mixing Strategy} \\
 \midrule
 Cross-Entropy (Baseline) & None (vanilla training) \\
-Balanced Softmax & Logit adjustment via class priors \\
-Focal Loss ($\gamma=2$) & Easy-sample down-weighting \\
-Adjacent Mixup + BalSoft & Hard ordinal mixing + logit adjustment \\
-OWMixup $\tau=2.0$ + CE & Soft ordinal pairing (proposed) \\
-OWMixup $\tau=0.5$ + BalSoft & Soft ordinal pairing + logit adjustment \\
+Balanced Softmax & Full log-frequency prior ($\gamma{=}1$) \\
+Focal Loss & Easy-sample down-weighting \\
+Mixup & Class-agnostic pixel interpolation \\
+Adjacent Mixup & Hard ordinal pixel mixing + Balanced Softmax \\
+OWMM (ours) & Ordinal \textit{manifold} mixing + tempered prior $\gamma$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -130,122 +140,166 @@ OWMixup $\tau=0.5$ + BalSoft & Soft ordinal pairing + logit adjustment \\
 \FloatBarrier
 \subsection{Datasets}
 
-We select two medical imaging benchmarks that differ in scale, modality, and imbalance structure, allowing us to test ordinal-aware methods under varied conditions.
+We use two medical benchmarks differing in scale, modality, and imbalance structure.
 
-\textbf{Knee OA}~\cite{kaggle_koa} consists of 8,260 PA knee radiographs graded KL~0--4 (denoted as G0--G4). The training set contains 5,778 images, validation 826, and test 1,656. Class distribution is highly imbalanced: Grade~0 (Healthy) dominates (2,286 training samples), while Grade~4 (Severe) has only 173 training samples. Grade~1 (Doubtful) is particularly challenging due to its inherent ambiguity.
+\textbf{Knee OA}~\cite{kaggle_koa} consists of 8{,}260 PA knee radiographs graded KL~0--4 (denoted G0--G4), split into 5{,}778 training, 826 validation, and 1{,}656 test images. Grade~0 (Healthy) dominates (2{,}286 training samples) while Grade~4 (Severe) has only 173 (imbalance ratio $\sim\!13\times$); Grade~1 (Doubtful) is particularly challenging due to its inherent ambiguity.
 
-\textbf{EyePACS DR}~\cite{gulshan2016development} contains 35,108 retinal fundus images from the EyePACS training partition, split via stratified 70/10/20 into 24,576 training, 3,511 validation, and 7,022 test images. Grade~0 (No DR) dominates (5,161 test samples), while DR~3 (175) and DR~4 (141) are the rarest. Mild NPDR (DR~1) accounts for 487 test samples with inherently ambiguous boundaries. This dataset tests whether ordinal-aware methods generalize to larger, noisier medical imaging tasks.
+\textbf{EyePACS DR}~\cite{kaggle_dr,gulshan2016development} contains 35{,}108 retinal fundus images, split via stratified 70/10/20 into 24{,}575 training, 3{,}511 validation, and 7{,}022 test. Grade~0 (No DR) dominates the training set (18{,}061 samples) while DR~4 is rarest (496), an imbalance ratio of $\sim\!36\times$. This dataset tests whether ordinal-aware methods generalize to larger, noisier, more severely imbalanced tasks.
 
-All images are resized to $224\times224$ with ImageNet normalization. Training augmentations include random resized crop, random horizontal flip, $\pm 10^\circ$ rotation, and color jitter (brightness and contrast $\pm 0.2$).
-
-\subsection{Implementation Details}
-
-All models use a ResNet-50 pretrained on ImageNet, with the final classification head consisting of Dropout($p=0.5$) followed by a linear layer projecting the $2048$-d features to $5$ classes. We train for $30$ epochs with batch size $32$, AdamW optimizer ($\beta_1=0.9, \beta_2=0.999$, learning rate $10^{-4}$, weight decay $10^{-4}$). The learning rate is halved when validation loss plateaus (ReduceLROnPlateau, patience $3$, factor $0.5$). Gradients are clipped to a maximum norm of $1.0$. Early stopping with patience $7$ on validation macro F1 is applied. All runs use seed $42$ for reproducibility. Experiments are implemented in PyTorch and trained on a single NVIDIA RTX A4000 GPU ($16$ GB).
+All images are resized to $224\times224$ with ImageNet normalization. Training augmentations include random resized crop, random horizontal flip, $\pm10^\circ$ rotation, and color jitter (brightness/contrast $\pm0.2$).
 
 \subsection{Evaluation Metrics}
 
-We evaluate with five complementary metrics. \textbf{Per-class F1} is our primary measure---on imbalanced ordinal data, macro-averaged scores can mask severe disparity in individual classes. \textbf{Macro F1} (unweighted mean of per-class F1) is the secondary aggregate metric. \textbf{Quadratic Weighted Kappa (QWK)}~\cite{cohen1960coefficient} captures ordinal consistency by penalizing predictions proportionally to their distance from the true grade, which is crucial for clinical grading scales. \textbf{Accuracy} and \textbf{per-class AUC-ROC} are reported as supplementary measures for completeness.
+We report four complementary metrics. Per-class F1 exposes the disparities that aggregate scores can mask on imbalanced ordinal data. Macro F1 (the unweighted mean of per-class F1) is our primary frequency-aware criterion. QWK~\cite{cohen1968weighted} captures ordinal consistency by penalizing predictions proportionally to their squared distance from the true grade, and MAE measures the average grade distance; both are clinically meaningful for graded scales.
 
 \subsection{Results on Knee OA}
 
-Table~\ref{tab:koa_perclass} traces the progressive improvement from baseline to our proposed OWMixup. We follow the narrative of a researcher discovering that ordinal awareness is the key to unlocking minority-class performance.
+% Table~\ref{tab:koa} reports Knee OA. OWMM uses the temper $\gamma=0.5$ selected by validation macro F1.
 
-\begin{table}[H]
+\begin{table}[!ht]
 \centering
-\caption{Per-class F1 scores on Knee OA (test set). Best per-column in bold. Support: G0=639, G1=296, G2=447, G3=223, G4=51.}
-\label{tab:koa_perclass}
+\caption{Per-class F1, macro F1, QWK and MAE on Knee OA (test, seed~123). OWMM uses $\gamma=0.5$, selected on validation macro F1. Best per column in bold. Support: G0=639, G1=296, G2=447, G3=223, G4=51.}
+\label{tab:koa}
 \small
-\begin{tabular}{lcccccc}
+\setlength\tabcolsep{4pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
 \toprule
-Method & G0 & G1 & G2 & G3 & G4 & Macro F1 \\
+\textbf{Method} & \textbf{G0} & \textbf{G1} & \textbf{G2} & \textbf{G3} & \textbf{G4} & \textbf{Macro F1} & \textbf{QWK} & \textbf{MAE} \\
 \midrule
-Baseline (CE)          & .783 & .282 & .608 & .795 & .854 & .664 \\
-Balanced Softmax       & .786 & .354 & .609 & .774 & .885 & .682 \\
-Focal Loss             & .722 & .413 & .524 & .796 & .849 & .661 \\
-Adjacent + BalSoft     & .755 & \textbf{.413} & .616 & \textbf{.823} & \textbf{.887} & \textbf{.699} \\
-OWMixup CE $\tau=2.0$  & .762 & .393 & .607 & .783 & .857 & .681 \\
-OWMixup + BalSoft $\tau=0.5$ & .771 & .382 & \textbf{.642} & .798 & .832 & .685 \\
+Baseline (CE)          & \textbf{0.788} & 0.370 & 0.570 & 0.800 & 0.791 & 0.664 & 0.824 & 0.393 \\
+Balanced Softmax       & 0.760 & \textbf{0.408} & 0.596 & 0.815 & 0.854 & 0.687 & 0.823 & 0.393 \\
+Focal Loss             & 0.679 & 0.395 & 0.590 & 0.802 & 0.863 & 0.666 & 0.801 & 0.438 \\
+Mixup                  & 0.750 & 0.401 & 0.581 & 0.814 & \textbf{0.879} & 0.685 & 0.832 & 0.393 \\
+Adjacent Mixup         & 0.785 & 0.377 & 0.597 & 0.821 & 0.851 & 0.686 & 0.829 & 0.383 \\
+\textbf{OWMM (ours)}   & 0.776 & 0.393 & \textbf{0.635} & \textbf{0.823} & 0.857 & \textbf{0.697} & \textbf{0.836} & \textbf{0.371} \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
-\textbf{Limitations of the cross-entropy baseline.} The cross-entropy baseline achieves macro F1~=~0.664, but this masks severe per-class disparity: Grade~1 (Doubtful) languishes at F1~=~0.282---barely better than random---while Grade~4 (Severe) reaches 0.854 despite only 51 test samples. The baseline has no mechanism to redistribute capacity toward ambiguous intermediate grades.
+\textbf{Limitations of the CE baseline.} The CE baseline reaches macro F1~=~0.664, but this masks severe per-class disparity: Grade~1 (Doubtful) languishes at 0.370 while Grade~4 (Severe) reaches 0.791. The baseline has no mechanism to redistribute capacity toward ambiguous intermediate grades.
 
-\textbf{Partial effectiveness of loss re-weighting.} Balanced Softmax adjusts logits by class prior frequencies, lifting Grade~1 from 0.282 to 0.354 ($+0.072$) and Grade~4 to 0.885. Focal Loss achieves a comparable Grade~1 of 0.413 ($+0.131$) but at a cost: Grade~0 drops from 0.783 to 0.722 ($-0.061$), indicating that aggressive easy-sample down-weighting harms majority-class performance.
+\textbf{Partial effectiveness of loss re-weighting.} Balanced Softmax lifts Grade~1 to 0.408 and Grade~4 to 0.854 (macro F1~=~0.687), but Focal Loss harms the majority (Grade~0 drops to 0.679) and lowers QWK to 0.801, showing that aggressive re-weighting alone trades majority performance for minority gains.
 
-\textbf{Impact of ordinal awareness.} Adjacent Mixup + Balanced Softmax delivers the best overall result: macro F1~=~0.699, Grade~1 at 0.413 ($+0.131$), and Grade~4 at 0.887. Crucially, Grade~0 is only marginally affected ($-0.028$), confirming that ordinal-aware mixing combined with logit adjustment \textit{redistributes} rather than sacrifices learning capacity. This insight---that ordinal structure can be exploited for imbalance correction---motivates our proposed OWMixup.
-
-\textbf{OWMixup generalization.} OWMixup with $\tau=2.0$ + CE achieves macro F1~=~0.681, competitive with the best ordinal baseline, while OWMixup + BalSoft ($\tau=0.5$) achieves the single best Grade~2 F1 of 0.642 ($+0.026$ over the hard-threshold variant). The soft Gaussian kernel provides smoother ordinal weighting than the hard adjacent threshold, with the temperature $\tau$ offering a principled control knob.
+\textbf{Impact of ordinal manifold mixing.} OWMM delivers the best aggregate results---macro F1~=~0.697, QWK~=~0.836 and the lowest MAE~=~0.371---while lifting the difficult mid-grade Grade~2 from 0.570 to 0.635. OWMM also edges out pixel-space Adjacent Mixup (macro F1 0.686, QWK 0.829). Crucially, Grade~0 is only marginally affected ($-0.012$), confirming that ordinal-aware manifold mixing with a tempered prior redistributes rather than sacrifices learning capacity.
 
 \FloatBarrier
 \subsection{Results on EyePACS DR}
 
-The EyePACS dataset (24,576 training images) tests whether ordinal-aware methods generalize to large-scale medical imaging. Table~\ref{tab:eyepacs_perclass} presents results.
+% Table~\ref{tab:eyepacs} reports EyePACS, where the imbalance ratio reaches $\sim\!36\times$. OWMM uses the temper $\gamma=0.25$ selected by validation macro F1.
 
-\begin{table}[H]
+\begin{table}[!ht]
 \centering
-\caption{Per-class F1 scores on EyePACS DR (test set). Support: DR~0=5161, DR~1=487, DR~2=1058, DR~3=175, DR~4=141.}
-\label{tab:eyepacs_perclass}
+\caption{Per-class F1, macro F1, QWK and MAE on EyePACS DR (test, seed~123). OWMM uses $\gamma=0.25$, selected on validation macro F1. Best per column in bold. Support: DR~0=5161, DR~1=487, DR~2=1058, DR~3=175, DR~4=141.}
+\label{tab:eyepacs}
 \small
-\begin{tabular}{lcccccc}
+\setlength\tabcolsep{4pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
 \toprule
-Method & DR~0 & DR~1 & DR~2 & DR~3 & DR~4 & Macro F1 \\
+\textbf{Method} & \textbf{DR~0} & \textbf{DR~1} & \textbf{DR~2} & \textbf{DR~3} & \textbf{DR~4} & \textbf{Macro F1} & \textbf{QWK} & \textbf{MAE} \\
 \midrule
-Baseline (CE)      & \textbf{.900} & .138 & \textbf{.591} & .492 & \textbf{.656} & \textbf{.555} \\
-Balanced Softmax   & .822 & .202 & .570 & .522 & .594 & .542 \\
-Focal Loss         & .721 & .139 & .466 & .453 & .641 & .484 \\
-Adjacent + BalSoft & .859 & .186 & .552 & .472 & .499 & .514 \\
-OWMixup CE $\tau=2.0$ & .832 & .177 & .492 & .465 & .549 & .503 \\
-OWMixup + BalSoft $\tau=0.5$ & .842 & .187 & .568 & .504 & .585 & .537 \\
+Baseline (CE)          & 0.900 & 0.115 & 0.579 & 0.442 & 0.645 & 0.536 & 0.709 & 0.298 \\
+Balanced Softmax       & 0.845 & 0.200 & 0.537 & \textbf{0.468} & 0.583 & 0.527 & 0.700 & 0.378 \\
+Focal Loss             & 0.752 & 0.150 & 0.473 & 0.441 & 0.639 & 0.491 & 0.535 & 0.560 \\
+Mixup                  & 0.858 & 0.143 & 0.528 & 0.461 & 0.598 & 0.518 & 0.637 & 0.399 \\
+Adjacent Mixup         & 0.850 & \textbf{0.212} & 0.509 & 0.464 & 0.562 & 0.519 & 0.701 & 0.376 \\
+\textbf{OWMM (ours)}   & \textbf{0.905} & 0.149 & \textbf{0.616} & 0.442 & \textbf{0.688} & \textbf{0.560} & \textbf{0.741} & \textbf{0.273} \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
-\textbf{Influence of dataset scale.} Unlike KOA, the baseline CE achieves the highest macro F1 (0.555), which we attribute to the larger training set reducing effective imbalance. However, a per-class analysis reveals the same ordinal-aware pattern: Balanced Softmax improves DR~1 from 0.138 to 0.202 ($+0.064$, a $46\%$ relative gain), and OWMixup variants show modest improvements of $+0.039$ to $+0.049$ on this minority class.
+\textbf{The baseline is hard to beat on scale.} On the larger EyePACS the CE baseline is already competitive (macro F1~0.536, QWK~0.709), and every classical remedy falls below it on macro F1: Balanced Softmax (0.527), Adjacent Mixup (0.519), and Focal Loss (0.491, with QWK collapsing to 0.535). This is exactly the regime where a single-configuration correction is fragile.
 
-\textbf{Lessons for practice.} The cross-dataset comparison reveals when ordinal methods matter most: they excel on smaller, more severely imbalanced datasets (KOA, $+0.035$ macro F1) and provide targeted minority-class improvements on larger datasets (EyePACS, $+0.064$ on DR~1). This makes ordinal-aware methods particularly valuable for smaller datasets (KOA) while still providing targeted minority-class gains at scale---though on larger datasets the baseline remains competitive overall.
+\textbf{OWMM wins on both aggregate and ordinal criteria.} Mixing ordinal partners on the feature manifold under a tempered prior, OWMM attains the best macro F1 (0.560), QWK (0.741) and MAE (0.273), and is the only compared method to improve over the baseline on all three. It improves DR~1 F1 by roughly $30\%$ (0.115$\to$0.149) and lifts DR~4 (0.645$\to$0.688) while raising the majority DR~0 to 0.905, showing capacity is redistributed, not sacrificed.
 
-\FloatBarrier
-\subsection{Ablation and Discussion}
+% \FloatBarrier
+\subsection{Ablation and Visualization}
 
-We ablate the key components of OWMixup: temperature sensitivity, visual feature quality, and the persistent Grade~1 bottleneck.
+\textbf{The tempered prior.} Table~\ref{tab:gamma} sweeps $\gamma$ within OWMM from no prior ($0$) to the full Balanced-Softmax prior ($1$). Neither endpoint is optimal: without the prior the rare grades remain under-served (KOA G1~0.284; EyePACS DR~1~0.045), while the full prior over-corrects and, on the $36\times$-skewed EyePACS, abandons the majority grade entirely (DR~0 F1~=~0.000, macro F1~0.278, MAE~0.906). The tempered prior recovers a robust interior optimum, and the best $\gamma$ tracks imbalance severity---$\gamma=0.5$ on the milder KOA versus $\gamma=0.25$ on the severe EyePACS. The main tables corroborate this: Adjacent Mixup is OWMM with pixel-space, hard-threshold mixing plus Balanced Softmax and no soft target, and vanilla Mixup further drops ordinal selection. As these differ from OWMM along several axes at once, their margin (Tables~\ref{tab:koa},~\ref{tab:eyepacs}) is consistent with---not proof of---manifold interpolation and ordinal supervision helping beyond ordinal pairing.
 
-\textbf{Temperature sensitivity.} Fig.~\ref{fig:koa_curves} compares training dynamics. OWMixup with $\tau=2.0$ (CE) achieves the fastest convergence on KOA, while $\tau=0.5$ (BalSoft) produces better test results on EyePACS, suggesting that narrower ordinal focus benefits larger, noisier datasets.
-
-\begin{figure}[h!]
+\begin{table}[!ht]
 \centering
-\includegraphics[width=\linewidth]{fig3_curves_KOA.png}
-\caption{Validation curves on KOA. OWMixup $\tau=2.0$ converges fastest. Adjacent + BalSoft achieves the highest final F1.}
-\label{fig:koa_curves}
+\caption{Temper $\gamma$ ablation within OWMM (test, seed~123). Best macro F1 per dataset in bold; $\gamma{=}1$ collapses on EyePACS.}
+\label{tab:gamma}
+\small
+\setlength\tabcolsep{4pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+$\boldsymbol{\gamma}$ & \textbf{G0} & \textbf{G1} & \textbf{G2} & \textbf{G3} & \textbf{G4} & \textbf{Macro F1} & \textbf{QWK} & \textbf{MAE} \\
+\midrule
+\multicolumn{9}{l}{\textit{Knee OA}}\\
+0 (no prior)   & 0.787 & 0.284 & 0.647 & 0.803 & 0.835 & 0.671 & 0.826 & 0.383 \\
+0.25           & 0.788 & 0.308 & 0.657 & 0.812 & 0.818 & 0.677 & 0.827 & 0.379 \\
+\textbf{0.5}   & 0.776 & 0.393 & 0.635 & 0.823 & 0.857 & \textbf{0.697} & 0.836 & 0.371 \\
+0.75           & 0.765 & 0.398 & 0.590 & 0.802 & 0.867 & 0.684 & 0.836 & 0.386 \\
+1 (full prior) & 0.757 & 0.386 & 0.602 & 0.800 & 0.821 & 0.673 & 0.840 & 0.386 \\
+\midrule
+\multicolumn{9}{l}{\textit{EyePACS DR}}\\
+0 (no prior)   & 0.909 & 0.045 & 0.613 & 0.474 & 0.621 & 0.532 & 0.736 & 0.274 \\
+\textbf{0.25}  & 0.905 & 0.149 & 0.616 & 0.442 & 0.688 & \textbf{0.560} & 0.741 & 0.273 \\
+0.5            & 0.902 & 0.151 & 0.563 & 0.499 & 0.667 & 0.556 & 0.755 & 0.281 \\
+0.75           & 0.789 & 0.175 & 0.527 & 0.497 & 0.667 & 0.531 & 0.702 & 0.413 \\
+1 (full prior) & 0.000 & 0.139 & 0.366 & 0.335 & 0.550 & 0.278 & 0.424 & 0.906 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{Visual analysis.} For each dataset we present a Grad-CAM attention map followed by a t-SNE embedding of penultimate-layer features (KOA: Figs.~\ref{fig:gradcam_koa} and~\ref{fig:tsne_koa}; EyePACS: Figs.~\ref{fig:gradcam_eyepacs} and~\ref{fig:tsne_eyepacs}). In Grad-CAM~\cite{selvaraju2017gradcam}, OWMM concentrates attention on the diagnostic regions for minority grades---the joint space on KOA and the retinal lesions on EyePACS---whereas the baselines yield more diffuse activations. In t-SNE~\cite{vandermaaten2008tsne}, cluster topology is preserved while the minority grades become marginally better separated under OWMM, indicating that ordinal-aware training refines---rather than restructures---the decision boundaries.
+
+% Qualitative figures grouped by dataset: Grad-CAM then t-SNE for KOA, then EyePACS.
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=0.75\linewidth]{figs/gradcam_KOA.png}
+\caption{Grad-CAM comparison across methods on Knee OA. OWMM keeps attention on the diagnostic joint space for minority grades, where the baselines drift to less informative regions.}
+\label{fig:gradcam_koa}
 \end{figure}
 
-\textbf{Visual analysis.} Fig.~\ref{fig:gradcam} compares Grad-CAM~\cite{selvaraju2017gradcam} attention maps across all methods on KOA. Ordinal-aware methods produce more localized attention on minority classes: Adjacent + BalSoft achieves the tightest focus on Grade~1 (attention score $-36.5$ vs baseline $-32.3$, where more negative indicates tighter heatmap concentration), corresponding directly to its $+0.131$ F1 improvement. OWMixup variants show similarly focused attention on Grade~2 ($-36.1$) and Grade~4 ($-40.4$), matching their strong per-class performance. In contrast, Balanced Softmax alone produces the most diffuse attention (Grade~0: $-23.9$ vs baseline $-35.3$), suggesting that logit redistribution without ordinal-aware attention does not improve feature focus.
-
-\begin{figure}[h!]
+\begin{figure}[H]
 \centering
-\includegraphics[width=\linewidth]{gradcam_KOA.png}
-\caption{Grad-CAM comparison across six methods on KOA. Ordinal-aware methods show tighter attention on minority classes (Grade~1, Grade~4).}
-\label{fig:gradcam}
+\includegraphics[width=0.75\linewidth]{figs/tsne_KOA.png}
+\caption{t-SNE of penultimate-layer features on Knee OA. Cluster topology is preserved while the minority grades gain marginally clearer separation under OWMM.}
+\label{fig:tsne_koa}
 \end{figure}
 
-Fig.~\ref{fig:tsne} shows t-SNE~\cite{vandermaaten2008tsne} embeddings of penultimate-layer features. The cluster structure is similar across all methods, indicating that ordinal awareness refines decision boundaries rather than fundamentally restructuring the feature space. Small but consistent improvements in inter-class separation are visible for Grade~1 under ordinal-aware methods, consistent with the per-class F1 gains.
-
-\begin{figure}[h!]
+\begin{figure}[!ht]
 \centering
-\includegraphics[width=\linewidth]{tsne_KOA.png}
-\caption{t-SNE visualization of penultimate-layer features on KOA. Cluster structure is preserved across methods; ordinal-aware methods show marginally improved separation for Grade~1.}
-\label{fig:tsne}
+\includegraphics[width=0.75\linewidth]{figs/gradcam_eyepacs.png}
+\caption{Grad-CAM comparison across methods on EyePACS DR. OWMM keeps attention on the retinal lesions for minority grades, where the baselines drift to less informative regions.}
+\label{fig:gradcam_eyepacs}
 \end{figure}
 
-\textbf{The Grade~1 bottleneck.} Across all methods and both datasets, the intermediate grade (Grade~1 in KOA, DR~1 in EyePACS) remains the most difficult, with best F1 scores of 0.413 and 0.202 respectively. This is consistent with clinical reality: these grades are defined by ambiguity---Kellgren-Lawrence Grade~1 (Doubtful) and DR~1 (Mild NPDR) represent ambiguous transitional states with inherently fuzzy clinical boundaries. While ordinal-aware methods deliver substantial improvements ($+0.131$ and $+0.064$ respectively), the ceiling suggests that post-hoc corrections have fundamental limitations for inherently ambiguous ordinal categories.
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=0.75\linewidth]{figs/tsne_eyepacs.png}
+\caption{t-SNE of penultimate-layer features on EyePACS DR. Cluster topology is preserved while the minority grades gain marginally clearer separation under OWMM.}
+\label{fig:tsne_eyepacs}
+\end{figure}
+
 
 \section{Conclusion}
 
-We propose OWMixup, a novel mixup variant that incorporates ordinal structure through a Gaussian kernel over class distances. Our systematic comparison of six configurations on two medical datasets reveals three findings: (1) ordinal-aware methods dramatically improve minority classes---Grade~1 F1 improves by $+0.131$ on KOA; (2) OWMixup generalizes adjacent mixup and achieves strong cross-dataset performance; (3) the majority class is minimally affected, confirming that ordinal awareness redistributes rather than degrades learning capacity. These results establish ordinal-weighted augmentation as a principled and effective approach for imbalanced medical image classification.
+We proposed OWMM, an ordinal-weighted manifold mixup paired with a tempered class prior for imbalanced medical grading. By mixing ordinal-selected partners in feature space rather than pixels, and by replacing the binary CE/Balanced-Softmax choice with a continuous temper $\gamma$, OWMM is the only compared method to surpass the CE baseline on both Knee OA and EyePACS across macro F1, QWK and MAE. Our ablation shows the tempered prior is essential---full re-weighting collapses the majority grade under severe imbalance---and that its optimum tracks imbalance severity, yielding a practical, interpretable recipe for ordinal-aware training. Future work includes multi-seed confirmation, direct comparison with dedicated ordinal-regression heads and label-distribution learning, and extension to further grading scales.
 
-\noindent
-% \textbf{Acknowledgment.} [Điền lời cảm ơn thực tế của anh vào đây hoặc xóa hẳn phần này nếu không cần thiết]
-\small
+% \noindent\textbf{Acknowledgment.} The author is grateful to Dr.~Duc-Quang Vu for his mentorship, insightful discussions, and continued support throughout this work, and for generously providing the computational resources on which the experiments were run.
+
+% Force references onto a fresh page so page 9 holds Figs 2-3 + Conclusion and
+% page 10 is references only. Remove this \clearpage if the split lands wrong.
+\clearpage
+
+% Compact bibliography: smaller font and tighter inter-entry spacing so the
+% references fit on a single page.
+\footnotesize
+% \let\OLDthebibliography\thebibliography
+% \renewcommand\thebibliography[1]{%
+%   \OLDthebibliography{#1}%
+%   \setlength{\parskip}{0pt}%
+%   \setlength{\itemsep}{0pt}%
+% }
 
 \bibliographystyle{splncs03_unsrt}
 \bibliography{references}
