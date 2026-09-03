@@ -11,6 +11,9 @@
 \usepackage{float}
 \usepackage[ruled,vlined]{algorithm2e}
 \def\UrlFont{\rmfamily}
+\setlength{\textfloatsep}{6pt plus 1pt minus 1pt}
+\setlength{\floatsep}{4pt plus 1pt minus 1pt}
+\setlength{\intextsep}{6pt plus 1pt minus 1pt}
 \newcommand{\placeholder}[2][0.85]{%
   \fbox{\parbox{#1\textwidth}{\centering\vspace{#2}{\color{gray}FIGURE PLACEHOLDER}\vspace{#2}}}}
 
@@ -19,17 +22,19 @@
 
 \title{OWMM: Ordinal-Weighted Manifold Mixup with a Tempered Prior for Imbalanced Medical Image Grading}
 
-% \author{T.Q. Chien$^{1*}$, L.T. Ha$^{1}$, N.T. Trung$^{1}$, N.T.A. Hoang$^{1}$}
+\titlerunning{OWMM: Ordinal-Weighted Manifold Mixup}
 
-% \institute{
-% $^1$Thai Nguyen University of Information and Communication Technology (ICTU), Thai Nguyen, Vietnam\\[1ex]
-% Correspondence: T.Q. Chien, tqchien@ictu.edu.vn
-% }
+\author{T.Q. Chien, L.T. Ha, N.T. Trung, N.T.A. Hoang, Duc-Quang Vu}
+
+\institute{
+Thai Nguyen University of Information and Communication Technology (ICTU), Thai Nguyen, Vietnam\\[1ex]
+Correspondence: vdquang@ictu.edu.vn
+}
 
 \maketitle
 
 \begin{abstract}
-Medical severity grading---such as knee osteoarthritis and diabetic retinopathy---is simultaneously ordinal and severely class-imbalanced, a combination that defeats generic imbalance remedies. Loss re-weighting corrects frequency but ignores grade ordering, while mixup augmentation blends images in pixel space, an operation that destroys the fine-grained texture on which medical decisions rely and treats a Grade~0/Grade~4 blend as no less valid than a Grade~0/Grade~1 one. We propose Ordinal-Weighted Manifold Mixup: mixing partners are sampled by a Gaussian kernel over ordinal distance modulated by an effective-number frequency weight, the interpolation is performed on hidden features rather than pixels, and supervision uses a soft target smoothed along the grade axis. Crucially, the method couples this with a tempered class prior $\gamma\in[0,1]$ that continuously interpolates between plain cross-entropy ($\gamma=0$) and full Balanced Softmax ($\gamma=1$). On two five-grade benchmarks---knee osteoarthritis radiographs and EyePACS retinal fundus images---it is the only compared method that surpasses the cross-entropy baseline on both datasets across macro F1, quadratic weighted kappa, and mean absolute error. An ablation shows why the tempered prior is essential: full Balanced Softmax collapses the majority grade on the highly skewed retinopathy data (macro F1 $0.278$), while an intermediate $\gamma$ recovers a robust optimum on both datasets, with the optimal $\gamma$ tracking imbalance severity.
+Medical severity grading---such as knee osteoarthritis and diabetic retinopathy---is simultaneously ordinal and severely class-imbalanced, a combination that defeats generic imbalance remedies. Loss re-weighting corrects frequency but ignores grade ordering, while mixup augmentation blends images in pixel space, an operation that destroys the fine-grained texture on which medical decisions rely and treats a Grade~0/Grade~4 blend as no less valid than a Grade~0/Grade~1 one. We propose Ordinal-Weighted Manifold Mixup: mixing partners are sampled by a Gaussian kernel over ordinal distance modulated by an effective-number frequency weight, the interpolation is performed on hidden features rather than pixels, and supervision uses a soft target smoothed along the grade axis. Crucially, the method couples this with a tempered class prior $\gamma\in[0,1]$ that continuously interpolates between plain cross-entropy ($\gamma=0$) and full Balanced Softmax ($\gamma=1$). On two five-grade benchmarks (knee osteoarthritis radiographs and EyePACS retinal fundus images), it is the only compared method that surpasses the cross-entropy baseline on both datasets across macro F1, quadratic weighted kappa, and mean absolute error. An ablation shows why the tempered prior is essential: within OWMM, the untempered endpoint ($\gamma=1$) collapses the majority grade on the highly skewed retinopathy data (macro F1 $0.278$)---unlike the standalone Balanced Softmax baseline, which does not collapse---while an intermediate $\gamma$ recovers a robust optimum on both datasets, with the optimal $\gamma$ tracking imbalance severity.
 
 \keywords{Medical Image Grading, Class Imbalance, Manifold Mixup, Ordinal Classification, Knee Osteoarthritis, Diabetic Retinopathy}
 \end{abstract}
@@ -47,7 +52,7 @@ In this paper we propose Ordinal-Weighted Manifold Mixup (OWMM), which (i) sampl
 \begin{itemize}
   \item OWMM, a mixup that interpolates ordinal-selected partners on the feature manifold, coupled with a continuous tempered class prior $\gamma$;
   \item Evidence that OWMM is the only compared method beating CE on both KOA and EyePACS across macro F1, quadratic weighted kappa (QWK) and mean absolute error (MAE);
-  \item An ablation showing the tempered prior is necessary---full Balanced Softmax collapses the majority grade under severe imbalance---and that the optimal $\gamma$ tracks imbalance severity.
+  \item An ablation showing the tempered prior is necessary---the untempered endpoint ($\gamma=1$) collapses the majority grade under severe imbalance, unlike the standalone Balanced Softmax baseline---and that the optimal $\gamma$ tracks imbalance severity.
 \end{itemize}
 
 % Nudge: let a few more lines fit on this page so \section{Methodology} is pulled
@@ -66,7 +71,7 @@ OWMM augments each mini-batch through four coupled mechanisms; Fig.~\ref{fig:met
 
 \begin{figure}[!ht]
 \centering
-\includegraphics[width=\linewidth]{figs/pipeline_owmm}
+\includegraphics[scale=0.2]{figs/pipeline_owmm}
 \caption{OWMM pipeline. Partners are selected by an ordinal Gaussian kernel with effective-number frequency weighting; interpolation is applied to the \texttt{layer3} feature manifold; the head is supervised with an ordinally smoothed soft target; and a tempered prior $\gamma$ scales the Balanced-Softmax logit shift.}
 \label{fig:method}
 \end{figure}
@@ -123,6 +128,7 @@ We compare six configurations (Table~\ref{tab:config}): a CE baseline; two loss 
 \caption{Summary of the six compared configurations.}
 \label{tab:config}
 \small
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lc}
 \toprule
 \textbf{Method} & \textbf{Imbalance / Mixing Strategy} \\
@@ -134,7 +140,8 @@ Mixup & Class-agnostic pixel interpolation \\
 Adjacent Mixup & Hard ordinal pixel mixing + Balanced Softmax \\
 OWMM (ours) & Ordinal \textit{manifold} mixing + tempered prior $\gamma$ \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \FloatBarrier
@@ -142,15 +149,15 @@ OWMM (ours) & Ordinal \textit{manifold} mixing + tempered prior $\gamma$ \\
 
 We use two medical benchmarks differing in scale, modality, and imbalance structure.
 
-\textbf{Knee OA}~\cite{kaggle_koa} consists of 8{,}260 PA knee radiographs graded KL~0--4 (denoted G0--G4), split into 5{,}778 training, 826 validation, and 1{,}656 test images. Grade~0 (Healthy) dominates (2{,}286 training samples) while Grade~4 (Severe) has only 173 (imbalance ratio $\sim\!13\times$); Grade~1 (Doubtful) is particularly challenging due to its inherent ambiguity.
+\textbf{Knee OA}~\cite{kaggle_koa} consists of 8{,}260 PA knee radiographs graded KL~0--4 (denoted G0--G4), split into 5{,}778 training, 826 validation, and 1{,}656 test images, using the dataset's pre-defined train/val/test partition (not re-split by this pipeline). Grade~0 (Healthy) dominates (2{,}286 training samples) while Grade~4 (Severe) has only 173 (imbalance ratio $\sim\!13\times$); Grade~1 (Doubtful) is particularly challenging due to its inherent ambiguity.
 
-\textbf{EyePACS DR}~\cite{kaggle_dr,gulshan2016development} contains 35{,}108 retinal fundus images, split via stratified 70/10/20 into 24{,}575 training, 3{,}511 validation, and 7{,}022 test. Grade~0 (No DR) dominates the training set (18{,}061 samples) while DR~4 is rarest (496), an imbalance ratio of $\sim\!36\times$. This dataset tests whether ordinal-aware methods generalize to larger, noisier, more severely imbalanced tasks.
+\textbf{EyePACS DR}~\cite{kaggle_dr,gulshan2016development} contains 35{,}108 retinal fundus images, split via stratified 70/10/20 into 24{,}575 training, 3{,}511 validation, and 7{,}022 test, at the image level (label-stratified); patient/eye identifiers were not available from the source distribution used, so we cannot rule out same-patient images appearing across splits. Grade~0 (No DR) dominates the training set (18{,}061 samples) while DR~4 is rarest (496), an imbalance ratio of $\sim\!36\times$. This dataset tests whether ordinal-aware methods generalize to larger, noisier, more severely imbalanced tasks.
 
 All images are resized to $224\times224$ with ImageNet normalization. Training augmentations include random resized crop, random horizontal flip, $\pm10^\circ$ rotation, and color jitter (brightness/contrast $\pm0.2$).
 
-\subsection{Evaluation Metrics}
+% \subsection{Evaluation Metrics}
 
-We report four complementary metrics. Per-class F1 exposes the disparities that aggregate scores can mask on imbalanced ordinal data. Macro F1 (the unweighted mean of per-class F1) is our primary frequency-aware criterion. QWK~\cite{cohen1968weighted} captures ordinal consistency by penalizing predictions proportionally to their squared distance from the true grade, and MAE measures the average grade distance; both are clinically meaningful for graded scales.
+% We report four complementary metrics. Per-class F1 exposes the disparities that aggregate scores can mask on imbalanced ordinal data. Macro F1 (the unweighted mean of per-class F1) is our primary frequency-aware criterion. QWK~\cite{cohen1968weighted} captures ordinal consistency by penalizing predictions proportionally to their squared distance from the true grade, and MAE measures the average grade distance; both are clinically meaningful for graded scales.
 
 \subsection{Results on Knee OA}
 
@@ -218,7 +225,7 @@ Adjacent Mixup         & 0.850 & \textbf{0.212} & 0.509 & 0.464 & 0.562 & 0.519 
 % \FloatBarrier
 \subsection{Ablation and Visualization}
 
-\textbf{The tempered prior.} Table~\ref{tab:gamma} sweeps $\gamma$ within OWMM from no prior ($0$) to the full Balanced-Softmax prior ($1$). Neither endpoint is optimal: without the prior the rare grades remain under-served (KOA G1~0.284; EyePACS DR~1~0.045), while the full prior over-corrects and, on the $36\times$-skewed EyePACS, abandons the majority grade entirely (DR~0 F1~=~0.000, macro F1~0.278, MAE~0.906). The tempered prior recovers a robust interior optimum, and the best $\gamma$ tracks imbalance severity---$\gamma=0.5$ on the milder KOA versus $\gamma=0.25$ on the severe EyePACS. The main tables corroborate this: Adjacent Mixup is OWMM with pixel-space, hard-threshold mixing plus Balanced Softmax and no soft target, and vanilla Mixup further drops ordinal selection. As these differ from OWMM along several axes at once, their margin (Tables~\ref{tab:koa},~\ref{tab:eyepacs}) is consistent with---not proof of---manifold interpolation and ordinal supervision helping beyond ordinal pairing.
+\textbf{The tempered prior.} Table~\ref{tab:gamma} sweeps $\gamma$ within OWMM from no prior ($0$) to the full Balanced-Softmax prior ($1$). Neither endpoint is optimal: without the prior the rare grades remain under-served (KOA G1~0.284; EyePACS DR~1~0.045), while the full prior over-corrects and, on the $36\times$-skewed EyePACS, abandons the majority grade entirely (DR~0 F1~=~0.000, macro F1~0.278, MAE~0.906). This collapse is specific to OWMM's ablation at the untempered endpoint ($\gamma{=}1$); the standalone Balanced Softmax baseline (Table~\ref{tab:eyepacs}) does not collapse (DR~0 F1~=~0.845, macro F1~=~0.527), since it lacks OWMM's minority-biased partner selection, which compounds with the untempered log-prior term to over-correct. The tempered prior recovers a robust interior optimum, and the best $\gamma$ tracks imbalance severity---$\gamma=0.5$ on the milder KOA versus $\gamma=0.25$ on the severe EyePACS. The main tables corroborate this: Adjacent Mixup is OWMM with pixel-space, hard-threshold mixing plus Balanced Softmax and no soft target, and vanilla Mixup further drops ordinal selection. As these differ from OWMM along several axes at once, their margin (Tables~\ref{tab:koa},~\ref{tab:eyepacs}) is consistent with---not proof of---manifold interpolation and ordinal supervision helping beyond ordinal pairing.
 
 \begin{table}[!ht]
 \centering
@@ -254,28 +261,28 @@ $\boldsymbol{\gamma}$ & \textbf{G0} & \textbf{G1} & \textbf{G2} & \textbf{G3} & 
 % Qualitative figures grouped by dataset: Grad-CAM then t-SNE for KOA, then EyePACS.
 \begin{figure}[!ht]
 \centering
-\includegraphics[width=0.75\linewidth]{figs/gradcam_KOA.png}
+\includegraphics[width=0.95\linewidth]{figs/gradcam_KOA.png}
 \caption{Grad-CAM comparison across methods on Knee OA. OWMM keeps attention on the diagnostic joint space for minority grades, where the baselines drift to less informative regions.}
 \label{fig:gradcam_koa}
 \end{figure}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.75\linewidth]{figs/tsne_KOA.png}
+\includegraphics[width=0.95\linewidth]{figs/tsne_KOA.png}
 \caption{t-SNE of penultimate-layer features on Knee OA. Cluster topology is preserved while the minority grades gain marginally clearer separation under OWMM.}
 \label{fig:tsne_koa}
 \end{figure}
 
 \begin{figure}[!ht]
 \centering
-\includegraphics[width=0.75\linewidth]{figs/gradcam_eyepacs.png}
+\includegraphics[width=0.95\linewidth]{figs/gradcam_eyepacs.png}
 \caption{Grad-CAM comparison across methods on EyePACS DR. OWMM keeps attention on the retinal lesions for minority grades, where the baselines drift to less informative regions.}
 \label{fig:gradcam_eyepacs}
 \end{figure}
 
 \begin{figure}[!ht]
 \centering
-\includegraphics[width=0.75\linewidth]{figs/tsne_eyepacs.png}
+\includegraphics[width=0.95\linewidth]{figs/tsne_eyepacs.png}
 \caption{t-SNE of penultimate-layer features on EyePACS DR. Cluster topology is preserved while the minority grades gain marginally clearer separation under OWMM.}
 \label{fig:tsne_eyepacs}
 \end{figure}
@@ -283,23 +290,23 @@ $\boldsymbol{\gamma}$ & \textbf{G0} & \textbf{G1} & \textbf{G2} & \textbf{G3} & 
 
 \section{Conclusion}
 
-We proposed OWMM, an ordinal-weighted manifold mixup paired with a tempered class prior for imbalanced medical grading. By mixing ordinal-selected partners in feature space rather than pixels, and by replacing the binary CE/Balanced-Softmax choice with a continuous temper $\gamma$, OWMM is the only compared method to surpass the CE baseline on both Knee OA and EyePACS across macro F1, QWK and MAE. Our ablation shows the tempered prior is essential---full re-weighting collapses the majority grade under severe imbalance---and that its optimum tracks imbalance severity, yielding a practical, interpretable recipe for ordinal-aware training. Future work includes multi-seed confirmation, direct comparison with dedicated ordinal-regression heads and label-distribution learning, and extension to further grading scales.
+We proposed OWMM, an ordinal-weighted manifold mixup paired with a tempered class prior for imbalanced medical grading. By mixing ordinal-selected partners in feature space rather than pixels, and by replacing the binary CE/Balanced-Softmax choice with a continuous temper $\gamma$, OWMM is the only compared method to surpass the CE baseline on both Knee OA and EyePACS across macro F1, QWK and MAE. Our ablation shows the tempered prior is essential---the untempered endpoint ($\gamma=1$) collapses the majority grade under severe imbalance, unlike the standalone Balanced Softmax baseline---and that its optimum tracks imbalance severity, yielding a practical, interpretable recipe for ordinal-aware training. Our results should be read with several caveats: they are single-seed without significance testing; the EyePACS split is image-level rather than patient-grouped, so residual leakage cannot be excluded; we compare against classical imbalance baselines rather than dedicated ordinal-regression heads (e.g., CORAL, label-distribution learning); and our ablation sweeps the temper $\gamma$ over the full pipeline rather than isolating each component (partner selection, pixel- vs.\ manifold-space mixing, effective-number weighting, ordinal label smoothing, adaptive mixing ratio). Addressing these is left to future work.
 
-% \noindent\textbf{Acknowledgment.} The author is grateful to Dr.~Duc-Quang Vu for his mentorship, insightful discussions, and continued support throughout this work, and for generously providing the computational resources on which the experiments were run.
+\noindent\textbf{Acknowledgment.} This work is part of the research project with code T2026-07-04, funded by the University of Information and Communication Technology, Thai Nguyen University. The authors would like to express their sincere gratitude to the university for its financial support.
 
 % Force references onto a fresh page so page 9 holds Figs 2-3 + Conclusion and
 % page 10 is references only. Remove this \clearpage if the split lands wrong.
-\clearpage
+% \clearpage
 
 % Compact bibliography: smaller font and tighter inter-entry spacing so the
 % references fit on a single page.
 \footnotesize
-% \let\OLDthebibliography\thebibliography
-% \renewcommand\thebibliography[1]{%
-%   \OLDthebibliography{#1}%
-%   \setlength{\parskip}{0pt}%
-%   \setlength{\itemsep}{0pt}%
-% }
+\let\OLDthebibliography\thebibliography
+\renewcommand\thebibliography[1]{%
+  \OLDthebibliography{#1}%
+  \setlength{\parskip}{0pt}%
+  \setlength{\itemsep}{0pt}%
+}
 
 \bibliographystyle{splncs03_unsrt}
 \bibliography{references}
