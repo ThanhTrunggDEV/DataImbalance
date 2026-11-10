@@ -167,3 +167,100 @@ def get_dataloaders(
     )
 
     return train_loader, val_loader, test_loader, class_weights, class_counts
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SupCon dataset (returns 2 augmented views per sample)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SupConViewDataset(Dataset):
+    """
+    Wraps a KneeDataset (or raw image folder) and returns 2 different
+    augmented views per sample — required for contrastive learning.
+
+    Expects the same folder structure as KneeDataset:
+        root_dir/train/  0/  1/  2/  3/  4/
+    """
+
+    def __init__(self, root_dir: str, split: str = "train", transform=None):
+        self.root_dir = os.path.join(root_dir, split)
+        self.transform = transform
+        self.image_paths: List[str] = []
+        self.labels: List[int] = []
+
+        if not os.path.exists(self.root_dir):
+            print(f"[WARNING] Directory not found: {self.root_dir}")
+            self.classes = []
+            return
+
+        self.classes = sorted(
+            d for d in os.listdir(self.root_dir)
+            if os.path.isdir(os.path.join(self.root_dir, d))
+        )
+        for label, cls in enumerate(self.classes):
+            cls_dir = os.path.join(self.root_dir, cls)
+            for fname in os.listdir(cls_dir):
+                if fname.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    self.image_paths.append(os.path.join(cls_dir, fname))
+                    self.labels.append(label)
+
+    def __len__(self) -> int:
+        return len(self.image_paths)
+
+    def __getitem__(self, idx: int):
+        image = Image.open(self.image_paths[idx]).convert('RGB')
+        label = self.labels[idx]
+        if self.transform:
+            x1 = self.transform(image)
+            x2 = self.transform(image)
+        else:
+            x1 = image
+            x2 = image
+        return x1, x2, label
+
+
+def get_supcon_train_loader(
+    data_dir: str,
+    batch_size: int = 32,
+    img_size: int = 256,
+    num_workers: int = 4,
+):
+    """
+    Build a train DataLoader that yields 2 augmented views per sample
+    (for SupCon pretraining). Uses stronger augmentations for contrastive learning.
+
+    Args:
+        data_dir:   Root directory containing train/ sub-folder.
+        batch_size: Samples per batch.
+        img_size:   Larger crop size for richer augmentations.
+        num_workers: DataLoader parallelism.
+
+    Returns:
+        train_loader yielding (views_1, views_2, labels) each with shape [B, 3, H, W].
+    """
+    candidate = os.path.join(data_dir, "Data")
+    actual_root = candidate if os.path.isdir(candidate) else data_dir
+
+    mean = [0.485, 0.456, 0.406]
+    std  = [0.229, 0.224, 0.225]
+
+    # Stronger augmentation for contrastive learning
+    supcon_transform = transforms.Compose([
+        transforms.Resize((img_size + 32, img_size + 32)),
+        transforms.RandomResizedCrop(img_size, scale=(0.5, 1.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std),
+    ])
+
+    train_ds = SupConViewDataset(actual_root, split="train", transform=supcon_transform)
+
+    _pw = num_workers > 0
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=True, persistent_workers=_pw,
+    )
+
+    return train_loader

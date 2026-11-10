@@ -4,6 +4,8 @@ from sklearn.metrics import (
     precision_recall_fscore_support,
     roc_auc_score,
     confusion_matrix,
+    cohen_kappa_score,
+    mean_absolute_error,
 )
 
 from configs.config import NUM_CLASSES
@@ -43,6 +45,12 @@ def calculate_metrics(y_true, y_pred, y_probs=None):
         except (ValueError, IndexError):
             # Edge case: some classes missing from a very small split
             metrics['auc_macro'] = float('nan')
+
+    # Ordinal metrics: QWK penalizes far errors more, MAE = avg grade error
+    qwk = cohen_kappa_score(y_true, y_pred, weights='quadratic')
+    mae = mean_absolute_error(y_true, y_pred)
+    metrics['qwk'] = qwk
+    metrics['mae'] = mae
 
     # Fixed-shape confusion matrix — rows=true, cols=predicted
     cm = confusion_matrix(y_true, y_pred, labels=list(range(NUM_CLASSES)))

@@ -3,9 +3,9 @@ Loss functions for class-imbalance experiments.
 
 Includes:
   - CrossEntropyLoss       (vanilla, for baseline)
-  - WeightedCrossEntropy   (class-frequency-weighted CE)
   - FocalLoss              (focal term + optional class weights)
   - BalancedSoftmaxLoss    (logit-margin shift by class frequency)
+  - SupConLoss             (supervised contrastive loss)
 """
 
 import torch
@@ -72,13 +72,21 @@ class BalancedSoftmaxLoss(nn.Module):
 
     Args:
         class_counts: 1-D array/tensor of per-class sample counts (train set).
+        gamma:        Tempering factor in [0, 1] on the log-prior (v19). gamma=1
+                      is the original full Balanced Softmax; gamma=0 recovers
+                      plain cross-entropy (no correction); values in between give
+                      a partial correction. Because `log_prior` is stored already
+                      scaled by gamma, every consumer that reads
+                      `criterion.log_prior` (the OWMM/queue mixup criteria) is
+                      tempered by the same factor automatically.
     """
 
-    def __init__(self, class_counts):
+    def __init__(self, class_counts, gamma: float = 1.0):
         super().__init__()
+        self.gamma = gamma
         # Register as buffer so it moves with .to(device) automatically
         counts = torch.tensor(class_counts, dtype=torch.float32)
-        self.register_buffer("log_prior", torch.log(counts + 1e-8))
+        self.register_buffer("log_prior", gamma * torch.log(counts + 1e-8))
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         # Shift logits by log class frequency (log_prior is a registered buffer,
@@ -88,21 +96,49 @@ class BalancedSoftmaxLoss(nn.Module):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. Weighted Cross-Entropy (convenience wrapper)
+# 3. Supervised Contrastive Loss
 # ─────────────────────────────────────────────────────────────────────────────
 
-class WeightedCrossEntropyLoss(nn.Module):
+class SupConLoss(nn.Module):
     """
-    Standard Cross-Entropy with per-class weights.
-    Weight for class j = (1 / n_j), normalised so they sum to num_classes.
+    Supervised Contrastive Loss — Khorla et al. (NeurIPS 2020).
+    "Supervised Contrastive Learning"
+
+    Pulls together views of the same class, pushes apart views of different classes.
+    Expects 2 views per sample in the batch → features shape [2*B, D].
+
+    Args:
+        temperature: Scaling factor for cosine similarities (default 0.1).
     """
 
-    def __init__(self, class_weights: torch.Tensor):
+    def __init__(self, temperature: float = 0.1):
         super().__init__()
-        self.register_buffer("weight", class_weights)
+        self.temp = temperature
 
-    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        return F.cross_entropy(inputs, targets, weight=self.weight)
+    def forward(self, features: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        batch_size = labels.size(0)
+        features = F.normalize(features, dim=1)
+
+        # Cosine similarity matrix [2B, 2B]
+        sim = torch.mm(features, features.T) / self.temp
+
+        # Duplicate labels for both views → [2B]
+        labels = torch.cat([labels, labels])
+
+        # Positive mask: exclude self, include other view + same-class
+        mask = torch.eq(labels.unsqueeze(1), labels.unsqueeze(0)).float()
+        mask -= torch.eye(2 * batch_size, device=features.device)
+
+        # Numerical stability: subtract max per row
+        sim_max, _ = sim.max(dim=1, keepdim=True)
+        sim = sim - sim_max.detach()
+
+        exp_sim = torch.exp(sim)
+        pos_sum = (exp_sim * mask).sum(1)
+        all_sum = exp_sim.sum(1) - exp_sim.diag()
+
+        loss = -torch.log(pos_sum / (all_sum + 1e-8)).mean()
+        return loss
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -115,16 +151,19 @@ def build_loss(
     class_counts: np.ndarray,
     device: torch.device,
     focal_gamma: float = 2.0,
+    supcon_temperature: float = 0.1,
+    prior_gamma: float = 1.0,
 ) -> nn.Module:
     """
     Factory function — build the correct loss based on version config.
 
     Args:
-        loss_type:      'cross_entropy' | 'focal' | 'balanced_softmax'
-        class_weights:  Inverse-freq weights per class (from dataset).
-        class_counts:   Raw sample counts per class.
-        device:         Target device.
-        focal_gamma:    Gamma for FocalLoss.
+        loss_type:           'cross_entropy' | 'focal' | 'balanced_softmax' | 'supcon'
+        class_weights:       Inverse-freq weights per class (from dataset).
+        class_counts:        Raw sample counts per class.
+        device:              Target device.
+        focal_gamma:         Gamma for FocalLoss.
+        supcon_temperature:  Temperature for SupConLoss.
     """
     weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to(device)
     # Normalise so mean weight == 1  (numerically stable)
@@ -140,8 +179,11 @@ def build_loss(
         return FocalLoss(alpha=weights_tensor, gamma=focal_gamma)
 
     elif loss_type == "balanced_softmax":
-        return BalancedSoftmaxLoss(class_counts=class_counts).to(device)
+        return BalancedSoftmaxLoss(class_counts=class_counts, gamma=prior_gamma).to(device)
+
+    elif loss_type == "supcon":
+        return SupConLoss(temperature=supcon_temperature)
 
     else:
         raise ValueError(f"Unknown loss_type: '{loss_type}'. "
-                         f"Choose from: cross_entropy, focal, balanced_softmax")
+                         f"Choose from: cross_entropy, focal, balanced_softmax, supcon")
